@@ -443,6 +443,54 @@ function kpi(l,v,s,c){return `<div class="kpi" style="--k:var(${c||'--accent'})"
 const delBtn=(col,id)=>{const k=col+':'+id,arm=ui.pend===k;return `<button class="btn sm ${arm?'armed':'danger'}" data-act="del" data-col="${col}" data-id="${id}">${arm?'Conferma':'Elimina'}</button>`};
 const statoPill=s=>s==='chiuso'?pill('Chiuso','mute'):s==='da_avviare'?pill('Da avviare','info'):pill('In corso','good');
 
+
+/* ---------- grafici della schermata Impresa ---------- */
+const MESI=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+function mensili(n){
+  const now=new Date(),ms=[];
+  for(let i=n-1;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);ms.push({k:d.getFullYear()+'-'+pad(d.getMonth()+1),l:MESI[d.getMonth()]+(d.getMonth()===0||i===n-1?" '"+String(d.getFullYear()).slice(2):''),ric:0,cos:0})}
+  const at=d=>d&&ms.find(m=>m.k===String(d).slice(0,7));
+  S.sal.forEach(x=>{const m=at(x.data);if(m)m.ric+=num(x.importo)});
+  S.costi.filter(x=>x.stato!=='ordine').forEach(x=>{const m=at(x.data);if(m)m.cos+=num(x.importo)});
+  S.ore.forEach(o=>{const m=at(o.data);if(m)m.cos+=num(o.ore)*num(o.costoOrario)});
+  return ms;
+}
+function chartMesi(ms){
+  const main=$('#main'),mw=main?main.clientWidth:640,half=window.innerWidth>1100;
+  const W=half?Math.max(300,Math.floor((mw-56-16)/2)-40):Math.max(300,Math.min(860,mw-60)),H=240,L=56,R=10,T=14,B=30;
+  const mx0=Math.max(...ms.map(m=>Math.max(m.ric,m.cos)),1);
+  const st0=mx0/4,mag=Math.pow(10,Math.floor(Math.log10(st0))),f=st0/mag,step=(f<=1?1:f<=2?2:f<=5?5:10)*mag,hi=Math.ceil(mx0/step)*step;
+  const Y=v=>T+(hi-v)/hi*(H-T-B),cf=new Intl.NumberFormat('it-IT',{notation:'compact',maximumFractionDigits:1});
+  const gw=(W-L-R)/ms.length,bw=Math.max(6,Math.min(28,(gw-16)/2));
+  let g='';for(let v=0;v<=hi+1e-6;v+=step)g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${v===0?'var(--ink-2)':'var(--line)'}" stroke-width="${v===0?1.5:1}"/><text x="${L-8}" y="${Y(v)+4}" text-anchor="end">${cf.format(v)}</text>`;
+  const bar=(x,v,c)=>{if(v<=0)return '';const h=Math.max(2,Y(0)-Y(v)),y=Y(0)-h,r=Math.min(4,bw/2,h);return `<path d="M${x},${Y(0)} V${y+r} Q${x},${y} ${x+r},${y} H${x+bw-r} Q${x+bw},${y} ${x+bw},${y+r} V${Y(0)} Z" fill="var(${c})"/>`};
+  let b='';ms.forEach((m,i)=>{const cx=L+gw*i+gw/2;
+    b+=bar(cx-bw-1,m.ric,'--s3')+bar(cx+1,m.cos,'--s2');
+    if(gw>=58||i%2===ms.length%2)b+=`<text x="${cx}" y="${H-10}" text-anchor="middle">${gw>=58?m.l:m.l.replace(/ '.*/,'')}</text>`;
+    b+=`<rect data-m="${i}" x="${L+gw*i}" y="${T}" width="${gw}" height="${H-T-B}" fill="transparent"/>`});
+  window.__mesi={ms,W,L,gw};
+  return `<div class="chart" id="chartM"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Ricavi e costi degli ultimi ${ms.length} mesi">${g}${b}</svg><div class="tip" id="tipM" hidden></div></div>`;
+}
+function prossime(){
+  const t0=today(),lim=addDays(t0,60),out=[];
+  S.scad.filter(x=>!x.pagato).forEach(x=>out.push({d:x.data,dir:-1,t:x.titolo,v:num(x.importo),kind:'Imposte',stim:!num(x.importo)}));
+  S.costi.filter(x=>x.stato!=='ordine'&&!x.pagato&&num(x.importo)>0).forEach(x=>out.push({d:x.scadenza||addDays(x.data,30),dir:-1,t:'Fattura '+(x.fornitore||'fornitore')+(x.cantiereId?' · '+cName(x.cantiereId):''),v:num(x.importo),kind:'Fornitori'}));
+  S.cantieri.forEach(c=>{const rit=num(c.ritenutaPct)/100;S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{const res=num(s.importo)*(1-rit)-num(s.incassato);if(res<=0.5)return;out.push({d:s.scadenza||addDays(s.dataFattura||s.data,60),dir:1,t:`${c.nome} · SAL ${s.n}`,v:res,kind:'Incassi'})})});
+  return out.filter(x=>x.d&&x.d<=lim).sort((a,b)=>a.d.localeCompare(b.d));
+}
+function giorniA(d){const n=Math.round((parse(d)-parse(today()))/864e5);return n<0?{t:`scaduta da ${-n} ${-n===1?'giorno':'giorni'}`,k:'bad'}:n===0?{t:'oggi',k:'warn'}:n<=7?{t:`tra ${n} ${n===1?'giorno':'giorni'}`,k:'warn'}:{t:`tra ${n} giorni`,k:'mute'}}
+function impresaGrafici(){
+  const ms=mensili(6),tot=ms.some(m=>m.ric||m.cos),c=cassa(),pr=prossime();
+  const sRic=sum(ms,m=>m.ric),sCos=sum(ms,m=>m.cos);
+  const lg=`<div class="lg"><span><i style="background:var(--s3)"></i>Ricavi (SAL maturati)</span><span><i style="background:var(--s2)"></i>Costi sostenuti</span></div>`;
+  const tab=`<details class="alt"><summary>Vedi i numeri</summary><div class="tw"><table><thead><tr><th>Mese</th><th class="n">Ricavi</th><th class="n">Costi</th><th class="n">Differenza</th></tr></thead><tbody>${ms.map(m=>`<tr><td>${m.l}</td><td class="n">${eur0(m.ric)}</td><td class="n">${eur0(m.cos)}</td><td class="n">${eur0(m.ric-m.cos)}</td></tr>`).join('')}</tbody></table></div></details>`;
+  const min=Math.min(...c.weeks.map(w=>w.saldo)),neg=c.weeks.find(w=>w.saldo<0);
+  return `<div class="grid2 sec">
+   <div class="card"><h2>Ricavi e costi, ultimi 6 mesi</h2>${tot?`${lg}${chartMesi(ms)}<p class="note">In 6 mesi: ricavi ${eur0(sRic)}, costi ${eur0(sCos)}, differenza ${eur0(sRic-sCos)}. I ricavi sono i SAL per data, i costi comprendono fatture e ore degli operai.</p>${tab}`:`<div class="empty"><h3>Ancora nessun dato</h3><span>Appena registri SAL e costi con la data, qui compare l'andamento mese per mese.</span></div>`}</div>
+   <div class="card"><h2>Cassa prevista, 13 settimane</h2>${chartCassa(c,true)}<p class="note">${neg?`<b>Il saldo scende sotto zero dal ${dt(neg.da)}.</b> `:''}Saldo minimo previsto ${eur0(min)}. <button class="link" data-act="nav" data-v="cassa">Dettaglio cassa</button></p></div>
+  </div>
+  <div class="sec"><div class="card"><h2>Prossime scadenze, 60 giorni</h2>${pr.length?`<div class="scd">${pr.slice(0,14).map(x=>{const g=giorniA(x.d);return `<div class="r"><span class="d">${dt(x.d)}</span><span class="t">${esc(x.t)}<small>${x.kind}</small></span><span class="g">${pill(g.t,g.k)}</span><span class="v ${x.dir>0?'in':'out'}">${x.stim?'<small>da stimare</small>':(x.dir>0?'+ ':'− ')+eur0(x.v)}</span></div>`}).join('')}</div>${pr.length>14?`<p class="note">Altre ${pr.length-14} scadenze in <button class="link" data-act="nav" data-v="cassa">Cassa</button>.</p>`:''}`:`<div class="empty"><h3>Nessuna scadenza nei prossimi 60 giorni</h3><span>In Cassa puoi generare le scadenze fiscali ordinarie.</span></div>`}<p class="note">Entrate (+) e uscite (−) insieme: imposte e rate, fatture dei fornitori non pagate, incassi dei SAL fatturati.</p></div></div>`;
+}
 function vImpresa(){
   if(!S.cantieri.length)return `<div class="page-h"><div><h1>Impresa</h1><p>Il quadro di tutti i cantieri.</p></div></div>${emptyCantieri()}`;
   const rows=S.cantieri.map(c=>({c,k:calc(c)}));
@@ -477,6 +525,7 @@ function vImpresa(){
    ${kpi('Costi sostenuti',eur0(cos),con?pct(cos/con*100)+' del portafoglio':'','--s2')}
    ${kpi('Margine previsto',wb.length?eur0(mar):'—',wb.length?`${pct(conWb?mar/conWb*100:0)} su ${wb.length} ${wb.length===1?'cantiere':'cantieri'} con budget`+(sb?`, ${sb} senza`:''):'imposta il budget costi dei cantieri','--s4')}
   </div>
+  ${impresaGrafici()}
   <div class="sec"><h2>Cantieri</h2><div class="tw"><table><thead><tr><th>Cantiere</th><th>Stato</th><th class="n">Contratto</th><th>Avanzamento</th><th class="n">Costi sostenuti</th><th class="n">Margine previsto</th><th class="n">Da incassare</th></tr></thead><tbody>
   ${rows.map(({c,k:kk})=>`<tr><td><button class="link" data-act="open-c" data-id="${c.id}">${esc(c.nome)}</button><span class="sub">${esc(c.indirizzo||'')}</span></td><td>${statoPill(c.stato)}</td><td class="n">${eur0(kk.contratto)}</td>
   <td style="min-width:130px"><div class="meter" style="--c:var(--s1)"><span style="width:${Math.min(100,kk.avanz*100)}%"></span></div><small>${pct(kk.avanz*100)}</small></td>
@@ -703,8 +752,8 @@ function vFatture(){
   :`<p class="note">Ancora nessuna fattura importata.</p>`}</div>`;
 }
 
-function chartCassa(c){
-  const main=$('#main'),W=Math.max(300,Math.min(860,(main?main.clientWidth:640)-60)),H=270,L=56,R=14,T=14,B=34;
+function chartCassa(c,half){
+  const main=$('#main'),mw=main?main.clientWidth:640,W=half&&window.innerWidth>1100?Math.max(300,Math.floor((mw-56-16)/2)-40):Math.max(300,Math.min(860,mw-60)),H=half?240:270,L=56,R=14,T=14,B=34;
   const vals=c.weeks.map(w=>w.saldo).concat([c.start,0]);
   let mn=Math.min(...vals),mx=Math.max(...vals);if(mx===mn)mx=mn+1000;
   const span=mx-mn,st0=span/4,mag=Math.pow(10,Math.floor(Math.log10(st0))),f=st0/mag,step=(f<=1?1:f<=2?2:f<=5?5:10)*mag;
@@ -865,6 +914,12 @@ document.addEventListener('dragleave',e=>{const d=e.target.closest('#drop');if(d
 document.addEventListener('drop',e=>{const d=e.target.closest('#drop');if(d){e.preventDefault();d.classList.remove('over');if(e.dataTransfer&&e.dataTransfer.files.length)importa(Array.from(e.dataTransfer.files))}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#ov').hidden)closeModal()});
 document.addEventListener('pointermove',e=>{
+  const tm=$('#tipM'),hm=e.target.closest&&e.target.closest('[data-m]');
+  if(tm){
+    if(hm&&window.__mesi){const m=window.__mesi.ms[+hm.getAttribute('data-m')],box=$('#chartM').getBoundingClientRect(),sv=$('#chartM svg').getBoundingClientRect();
+      tm.innerHTML=`<b>${m.l}</b><div><span>Ricavi</span><span>${eur0(m.ric)}</span></div><div><span>Costi</span><span>${eur0(m.cos)}</span></div><div><span>Differenza</span><b>${eur0(m.ric-m.cos)}</b></div>`;
+      tm.hidden=false;const px=(e.clientX-sv.left)+12,tw=tm.offsetWidth;tm.style.left=Math.max(0,Math.min(sv.width-tw,px))+'px';tm.style.top='8px'}
+    else tm.hidden=true}
   const ch=e.target.closest&&e.target.closest('#chart');const tip=$('#tip'),cx=$('#cx');
   if(!ch||!window.__cassa||!tip){if(tip)tip.hidden=true;if(cx)cx.setAttribute('visibility','hidden');return}
   const svgEl=ch.querySelector('svg'),r=svgEl.getBoundingClientRect(),c=window.__cassa;
@@ -876,7 +931,7 @@ document.addEventListener('pointermove',e=>{
   const px=c.X(best)*(r.width/c.W),tw=tip.offsetWidth;
   tip.style.left=Math.max(0,Math.min(r.width-tw,px+12))+'px';tip.style.top='8px';
 });
-let rz=0;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(ui.view==='cassa')render()},150)});
+let rz=0;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(ui.view==='cassa'||ui.view==='impresa')render()},150)});
 
 /* ---------- avvio ---------- */
 async function boot(){
