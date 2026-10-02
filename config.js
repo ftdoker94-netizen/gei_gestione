@@ -3,5 +3,5 @@
 // NON mettere mai qui la chiave "service_role" / "secret".
 window.GEI_CONFIG = {
   url: 'https://rctgoienhkiuifwmerlu.supabase.co',
-  key: 'INCOLLA_QUI_LA_PUBLISHABLE_KEY'
+  key: 'sb_publishable_U2VM2mKWuplwl6hx9KmrYw_iOVcbzFj'
 };
