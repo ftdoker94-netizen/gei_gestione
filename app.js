@@ -146,7 +146,7 @@ function periodo(c,da,a){
   const tot=CK.reduce((t,k)=>t+by[k],0);
   return {by,tot,giorni:days.size,medio:days.size?tot/days.size:0};
 }
-const cfg=()=>({fissi:num(S.config.costiFissiMensili),cassa:num(S.config.cassaIniziale),soglia:S.config.margineMin==null?10:num(S.config.margineMin),iva:S.config.ivaRegime||'trim'});
+const cfg=()=>({fissi:num(S.config.costiFissiMensili),cassa:num(S.config.cassaIniziale),cassaData:S.config.cassaData||'',soglia:S.config.margineMin==null?10:num(S.config.margineMin),iva:S.config.ivaRegime||'trim'});
 function salStato(s,c){
   const rit=num(c.ritenutaPct)/100,res=num(s.importo)*(1-rit)-num(s.incassato);
   if(!s.fatturato)return {t:'Da fatturare',k:'warn'};
@@ -177,15 +177,28 @@ function cassa(){
       incassi.push({d,res,c:c.nome,n:s.n});
     });
   });
+  let stimati=0;
+  S.cantieri.forEach(c=>{
+    const rit=num(c.ritenutaPct)/100;
+    S.sal.filter(s=>s.cantiereId===c.id&&!s.fatturato&&num(s.importo)>0).forEach(s=>{
+      const res=num(s.importo)*(1-rit),d0=addDays(s.data||t0,60),d=d0<t0?t0:d0,i=idx(d);
+      stimati+=res;if(i<W)weeks[i].inc+=res;
+      incassi.push({d,res,c:c.nome,n:s.n,stim:true});
+    });
+  });
   S.costi.filter(x=>x.stato!=='ordine'&&!x.pagato).forEach(x=>{
     const d=x.scadenza||addDays(x.data,30),i=idx(d);if(i<W)weeks[i].pag+=num(x.importo);
     pagamenti.push({d,v:num(x.importo),f:x.fornitore});
   });
-  const k=cfg(),fixW=k.fissi*12/52;
+  const k=cfg(),fixW=k.fissi*12/52,base=k.cassaData,okD=d=>!base||(d&&d>=base);
+  let rIn=0,rOut=0;
+  S.sal.forEach(x=>{if(num(x.incassato)>0&&okD(x.dataIncasso||x.data))rIn+=num(x.incassato)});
+  S.costi.filter(x=>x.stato!=='ordine'&&x.pagato&&okD(x.data)).forEach(x=>{rOut+=num(x.importo)});
+  const attuale=k.cassa+rIn-rOut;
   S.scad.filter(x=>!x.pagato&&num(x.importo)>0).forEach(x=>{const i=idx(x.data);if(i<W)weeks[i].tax+=num(x.importo)});
-  let s=k.cassa;
+  let s=attuale;
   weeks.forEach(w=>{w.fix=fixW;s=s+w.inc-w.pag-w.tax-w.fix;w.saldo=s});
-  return {weeks,scaduti,start:k.cassa,incassi,pagamenti};
+  return {weeks,scaduti,start:attuale,iniziale:k.cassa,rIn,rOut,stimati,incassi,pagamenti};
 }
 
 /* ---------- fatture elettroniche ---------- */
@@ -476,6 +489,7 @@ function prossime(){
   S.scad.filter(x=>!x.pagato).forEach(x=>out.push({d:x.data,dir:-1,t:x.titolo,v:num(x.importo),kind:'Imposte',stim:!num(x.importo)}));
   S.costi.filter(x=>x.stato!=='ordine'&&!x.pagato&&num(x.importo)>0).forEach(x=>out.push({d:x.scadenza||addDays(x.data,30),dir:-1,t:'Fattura '+(x.fornitore||'fornitore')+(x.cantiereId?' · '+cName(x.cantiereId):''),v:num(x.importo),kind:'Fornitori'}));
   S.cantieri.forEach(c=>{const rit=num(c.ritenutaPct)/100;S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{const res=num(s.importo)*(1-rit)-num(s.incassato);if(res<=0.5)return;out.push({d:s.scadenza||addDays(s.dataFattura||s.data,60),dir:1,t:`${c.nome} · SAL ${s.n}`,v:res,kind:'Incassi'})})});
+  S.cantieri.forEach(c=>{const rit=num(c.ritenutaPct)/100;S.sal.filter(s=>s.cantiereId===c.id&&!s.fatturato&&num(s.importo)>0).forEach(s=>{const d0=addDays(s.data||t0,60);out.push({d:d0<t0?t0:d0,dir:1,t:`${c.nome} · SAL ${s.n} (da fatturare, stima)`,v:num(s.importo)*(1-rit),kind:'Incassi'})})});
   return out.filter(x=>x.d&&x.d<=lim).sort((a,b)=>a.d.localeCompare(b.d));
 }
 function giorniA(d){const n=Math.round((parse(d)-parse(today()))/864e5);return n<0?{t:`scaduta da ${-n} ${-n===1?'giorno':'giorni'}`,k:'bad'}:n===0?{t:'oggi',k:'warn'}:n<=7?{t:`tra ${n} ${n===1?'giorno':'giorni'}`,k:'warn'}:{t:`tra ${n} giorni`,k:'mute'}}
@@ -777,8 +791,8 @@ function chartCassa(c,half){
 function vCassa(){
   const c=cassa(),min=Math.min(...c.weeks.map(w=>w.saldo)),neg=c.weeks.find(w=>w.saldo<0);
   const tIn=sum(c.weeks,w=>w.inc),tOut=sum(c.weeks,w=>w.pag),tTax=sum(c.weeks,w=>w.tax),tFix=sum(c.weeks,w=>w.fix);
-  return `<div class="page-h"><div><h1>Cassa e scadenze</h1><p>Previsione a 13 settimane da incassi dei SAL fatturati, fatture fornitori non pagate e costi fissi.</p></div><button class="btn" data-act="nav" data-v="impost">Cassa iniziale e costi fissi</button></div>
-  <div class="kpis">${kpi('Cassa iniziale',eur0(c.start),'impostata da te','--s1')}${kpi('Incassi previsti',eur0(tIn),c.scaduti?`di cui ${eur0(c.scaduti)} già scaduti`:'SAL fatturati','--s3')}${kpi('Uscite previste',eur0(tOut+tTax),`fornitori ${eur0(tOut)} · imposte e rate ${eur0(tTax)}`,'--s2')}${kpi('Saldo minimo previsto',eur0(min),neg?'scende sotto zero dal '+dt(neg.da):'resta positivo','--s4')}</div>
+  return `<div class="page-h"><div><h1>Cassa e scadenze</h1><p>Parte dalla cassa attuale (cassa iniziale + incassi − pagamenti già registrati) e prosegue per 13 settimane con i SAL maturati e fatturati, le fatture dei fornitori non pagate, imposte e costi fissi.</p></div><button class="btn" data-act="nav" data-v="impost">Cassa iniziale e costi fissi</button></div>
+  <div class="kpis">${kpi('Cassa attuale',eur0(c.start),`iniziale ${eur0(c.iniziale)} + incassato ${eur0(c.rIn)} − pagato ${eur0(c.rOut)}`,'--s1')}${kpi('Incassi previsti',eur0(tIn),(c.scaduti?`di cui ${eur0(c.scaduti)} già scaduti`:'SAL fatturati')+(c.stimati?` · ${eur0(c.stimati)} di SAL maturati da fatturare, stimati a 60 giorni`:''),'--s3')}${kpi('Uscite previste',eur0(tOut+tTax),`fornitori ${eur0(tOut)} · imposte e rate ${eur0(tTax)}`,'--s2')}${kpi('Saldo minimo previsto',eur0(min),neg?'scende sotto zero dal '+dt(neg.da):'resta positivo','--s4')}</div>
   ${neg?`<div class="banner" style="margin-top:14px;border-left-color:var(--bad)">${pill('Urgente','bad')}<span>Il saldo previsto diventa negativo nella settimana del ${dt(neg.da)}. Valuta di anticipare un incasso o spostare un pagamento.</span></div>`:''}
   <div class="card sec"><h2>Saldo di cassa previsto</h2>${chartCassa(c)}<p class="note">Le ore degli operai non entrano qui: includi stipendi e costi di struttura nei costi fissi mensili (${eur0(cfg().fissi)} al mese, ${eur0(tFix)} nelle 13 settimane).</p></div>
   <div class="sec"><h2>Settimana per settimana</h2><div class="tw"><table><thead><tr><th>Dal</th><th class="n">Incassi</th><th class="n">Fornitori</th><th class="n">Imposte e rate</th><th class="n">Costi fissi</th><th class="n">Saldo</th></tr></thead><tbody>
@@ -802,7 +816,8 @@ function vImpost(){
    ${F.m('fissi','Costi fissi mensili (€)',k.fissi||'',{cls:'full'})}
    ${F.s('iva','Liquidazione IVA',[['trim','Trimestrale'],['mens','Mensile']],k.iva,{cls:'full'})}
    ${F.m('cassa','Cassa iniziale (€)',k.cassa||'')}${F.m('soglia','Soglia margine minimo (%)',k.soglia)}
-  </div><p class="hint">I costi fissi comprendono struttura, stipendi e tutto ciò che esce ogni mese a prescindere dai cantieri. La soglia fa segnalare i cantieri con margine previsto più basso.</p><div class="mfoot"><button class="btn pri" type="submit">Salva</button></div></form>
+   ${F.t('cassaData','Cassa iniziale riferita al giorno',k.cassaData,{type:'date',cls:'full'})}
+  </div><p class="hint">I costi fissi comprendono struttura, stipendi e tutto ciò che esce ogni mese a prescindere dai cantieri. La soglia fa segnalare i cantieri con margine previsto più basso.</p><p class="hint">La cassa attuale è la cassa iniziale più gli incassi dei SAL meno i costi pagati registrati da quel giorno in poi. Se la lasci vuota contano tutti i movimenti registrati: usala se parti da zero. Se invece inserisci il saldo del conto di oggi, indica la data di oggi.</p><div class="mfoot"><button class="btn pri" type="submit">Salva</button></div></form>
   <div class="card"><h2>Operai e costo orario</h2>
    ${S.operai.length?`<div class="tw"><table><thead><tr><th>Nome</th><th class="n">€/h</th><th></th></tr></thead><tbody>${S.operai.map(p=>`<tr><td>${esc(p.nome)}</td><td class="n">${eur(p.costoOrario)}</td><td><div class="acts"><button class="btn sm" data-act="edit-op" data-id="${p.id}">Modifica</button>${delBtn('operai',p.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note" style="margin:0 0 10px">Nessun operaio. Aggiungili qui o direttamente dal primo rapportino.</p>`}
    <div class="mfoot" style="margin-top:12px"><button class="btn pri" data-act="add-op">Nuovo operaio</button></div></div></div>
@@ -906,7 +921,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('submit',e=>{
   if(e.target.id==='cfgf'){
     e.preventDefault();const fd=new FormData(e.target);
-    putConfig({costiFissiMensili:num(fd.get('fissi')),cassaIniziale:num(fd.get('cassa')),margineMin:num(fd.get('soglia')),ivaRegime:fd.get('iva')==='mens'?'mens':'trim'});toast('Impostazioni salvate');
+    putConfig({costiFissiMensili:num(fd.get('fissi')),cassaIniziale:num(fd.get('cassa')),cassaData:fd.get('cassaData')||'',margineMin:num(fd.get('soglia')),ivaRegime:fd.get('iva')==='mens'?'mens':'trim'});toast('Impostazioni salvate');
   }
 });
 document.addEventListener('dragover',e=>{const d=e.target.closest('#drop');if(d){e.preventDefault();d.classList.add('over')}});
