@@ -76,11 +76,11 @@ try{const s=JSON.parse(localStorage.getItem('gei-ui')||'{}');if(s.view)ui.view=s
 const saveUi=()=>{try{localStorage.setItem('gei-ui',JSON.stringify({view:ui.view,cid:ui.cid,tab:ui.tab}))}catch(e){}};
 
 /* ---------- salvataggio ---------- */
-async function put(col,obj){
+async function put(col,obj,quiet){
   const o={...obj};if(!o.id)o.id=uid();const id=o.id;delete o.id;
   const full={...o,id};const i=S[col].findIndex(x=>x.id===id);
   if(i>=0)S[col][i]=full;else S[col].push(full);
-  render();
+  if(!quiet)render();
   if(DB){try{await DB.collection(col).doc(id).set(o)}catch(e){toast('Salvataggio non riuscito: '+(e&&(e.message||e.code)||'errore'))}}
   return id;
 }
@@ -208,7 +208,7 @@ function parseFattura(text){
   const all=(el,n)=>Array.from(el.getElementsByTagNameNS('*',n));
   const g=(el,n)=>{const x=el.getElementsByTagNameNS('*',n)[0];return x?x.textContent.trim():''};
   const ced=all(doc,'CedentePrestatore')[0];
-  if(!ced)throw new Error('Non è una fattura elettronica');
+  if(!ced){const er=new Error('Non è una fattura elettronica');er.code='NOINV';throw er}
   let forn=g(ced,'Denominazione');if(!forn)forn=(g(ced,'Nome')+' '+g(ced,'Cognome')).trim();
   const piva=g(ced,'IdCodice');
   const out=[];
@@ -254,21 +254,23 @@ async function leggiFile(file){
   if(name.endsWith('.zip')){
     if(!window.JSZip)throw new Error('lettura ZIP non disponibile');
     const z=await window.JSZip.loadAsync(await file.arrayBuffer());
-    const names=Object.keys(z.files).filter(n=>/\.(xml|p7m)$/i.test(n)&&!z.files[n].dir);
+    const names=Object.keys(z.files).filter(n=>/\.(xml|p7m)$/i.test(n)&&!z.files[n].dir&&!/metadat|(^|[_\/])mt[_.]/i.test(n));
     for(const n of names){res.push({nome:n,buf:await z.files[n].async('arraybuffer')})}
   }else res.push({nome:file.name,buf:await file.arrayBuffer()});
   return res.map(r=>({nome:r.nome,testo:()=>fromBuf(r.buf)}));
 }
 async function importa(files){
-  ui.log=[];let nuove=0,doppie=0,errori=0,auto=0;
+  ui.log=[];let nuove=0,doppie=0,errori=0,auto=0,emesse=0,ignorati=0;
+  const mia=String(S.config.piva||'').replace(/\D/g,'');
   const chiavi=new Set(S.costi.map(x=>x.chiave).filter(Boolean));
   for(const file of files){
     let parti;
     try{parti=await leggiFile(file)}catch(e){ui.log.push({k:'bad',t:`${file.name}: ${e.message}`});errori++;continue}
     for(const p of parti){
       let fatt;
-      try{fatt=parseFattura(p.testo())}catch(e){ui.log.push({k:'bad',t:`${p.nome}: ${e.message}`});errori++;continue}
+      try{fatt=parseFattura(p.testo())}catch(e){if(e.code==='NOINV'||/non riconosciuto/.test(e.message)){ignorati++;continue}ui.log.push({k:'bad',t:`${p.nome}: ${e.message}`});errori++;continue}
       for(const f of fatt){
+        if(mia&&String(f.piva||'').replace(/\D/g,'')===mia){emesse++;continue}
         const chiave=[f.piva||norm(f.forn),f.numero,f.data].join('|');
         if(chiavi.has(chiave)){doppie++;continue}
         chiavi.add(chiave);
@@ -277,12 +279,12 @@ async function importa(files){
         await put('costi',{cantiereId:as.cantiereId,categoria:as.categoria,data:f.data,
           descrizione:(d0.length>120?d0.slice(0,117)+'…':d0)+(f.desc.length>1?` (+${f.desc.length-1} righe)`:''),
           fornitore:f.forn,piva:f.piva,numero:f.numero,importo:Math.round(f.importo*100)/100,stato:'registrato',
-          pagato:false,scadenza:f.scad||'',origine:'xml',chiave,cup:f.cup.join(','),cig:f.cig.join(',')});
+          pagato:false,scadenza:f.scad||'',origine:'xml',chiave,cup:f.cup.join(','),cig:f.cig.join(',')},true);
         nuove++;
       }
     }
   }
-  ui.log.unshift({k:nuove?'good':'info',t:`${nuove} fatture registrate (${auto} assegnate da sole, ${nuove-auto} da assegnare), ${doppie} già presenti, ${errori} con errori.`});
+  ui.log.unshift({k:nuove?'good':'info',t:`${nuove} fatture registrate (${auto} assegnate da sole, ${nuove-auto} da assegnare), ${doppie} già presenti`+(emesse?`, ${emesse} emesse da te (ignorate)`:'')+(ignorati?`, ${ignorati} file non-fattura ignorati`:'')+`, ${errori} con errori.`});
   render();toast(nuove?`${nuove} fatture importate`:'Nessuna fattura nuova');
 }
 
@@ -751,6 +753,7 @@ function vFatture(){
   return `<div class="page-h"><div><h1>Fatture</h1><p>Carica le fatture passive: le assegno ai cantieri e le registro come costi.</p></div><button class="btn" data-act="add-costo" data-cid="">Costo manuale</button></div>
   <div class="drop" id="drop"><b>Trascina qui le fatture elettroniche</b><span>File XML, XML.P7M oppure uno ZIP scaricato dal cassetto fiscale o da chi ti tiene la contabilità.</span><button class="btn pri" data-act="pick">Scegli i file</button><input type="file" id="fin" multiple accept=".xml,.p7m,.zip" hidden></div>
   ${ui.log.length?`<ul class="log">${ui.log.map(l=>`<li>${pill(l.k==='bad'?'Errore':l.k==='good'?'Fatto':'Info',l.k)} ${esc(l.t)}</li>`).join('')}</ul>`:''}
+  <details class="alt"><summary>Come scaricare le fatture dal cassetto fiscale</summary><p class="note">Accedi al portale Fatture e Corrispettivi dell'Agenzia delle Entrate con SPID, CIE o CNS, apri la consultazione delle fatture ricevute, imposta il periodo e scarica i file XML (se il portale ti offre l'archivio completo, meglio lo ZIP). Poi trascinali qui. Le fatture che hai emesso tu vengono ignorate se indichi la tua partita IVA in Opzioni. Se un file non si apre, l'Agenzia conserva l'XML solo per chi ha aderito al servizio di consultazione: in quel caso chiedi gli XML al commercialista.</p></details>
   <p class="note">Assegnazione automatica: prima per ditta subappaltatrice o fornitore già associato, poi per CUP/CIG, poi per le parole chiave del cantiere. Le fatture già caricate non si duplicano.</p>
   <div class="sec"><h2>Da assegnare ${da.length?pill(String(da.length),'warn'):''}</h2>
   ${da.length?`<div class="tw"><table><thead><tr><th>Data</th><th>Fornitore</th><th class="n">Imponibile</th><th>Cantiere</th><th>Categoria</th><th>Ricorda</th><th></th></tr></thead><tbody>
@@ -817,6 +820,7 @@ function vImpost(){
    ${F.s('iva','Liquidazione IVA',[['trim','Trimestrale'],['mens','Mensile']],k.iva,{cls:'full'})}
    ${F.m('cassa','Cassa iniziale (€)',k.cassa||'')}${F.m('soglia','Soglia margine minimo (%)',k.soglia)}
    ${F.t('cassaData','Cassa iniziale riferita al giorno',k.cassaData,{type:'date',cls:'full'})}
+   ${F.t('piva','Partita IVA di GEI (per ignorare le fatture emesse)',S.config.piva||'',{cls:'full',inputmode:'numeric'})}
   </div><p class="hint">I costi fissi comprendono struttura, stipendi e tutto ciò che esce ogni mese a prescindere dai cantieri. La soglia fa segnalare i cantieri con margine previsto più basso.</p><p class="hint">La cassa attuale è la cassa iniziale più gli incassi dei SAL meno i costi pagati registrati da quel giorno in poi. Se la lasci vuota contano tutti i movimenti registrati: usala se parti da zero. Se invece inserisci il saldo del conto di oggi, indica la data di oggi.</p><div class="mfoot"><button class="btn pri" type="submit">Salva</button></div></form>
   <div class="card"><h2>Operai e costo orario</h2>
    ${S.operai.length?`<div class="tw"><table><thead><tr><th>Nome</th><th class="n">€/h</th><th></th></tr></thead><tbody>${S.operai.map(p=>`<tr><td>${esc(p.nome)}</td><td class="n">${eur(p.costoOrario)}</td><td><div class="acts"><button class="btn sm" data-act="edit-op" data-id="${p.id}">Modifica</button>${delBtn('operai',p.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note" style="margin:0 0 10px">Nessun operaio. Aggiungili qui o direttamente dal primo rapportino.</p>`}
@@ -921,7 +925,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('submit',e=>{
   if(e.target.id==='cfgf'){
     e.preventDefault();const fd=new FormData(e.target);
-    putConfig({costiFissiMensili:num(fd.get('fissi')),cassaIniziale:num(fd.get('cassa')),cassaData:fd.get('cassaData')||'',margineMin:num(fd.get('soglia')),ivaRegime:fd.get('iva')==='mens'?'mens':'trim'});toast('Impostazioni salvate');
+    putConfig({costiFissiMensili:num(fd.get('fissi')),cassaIniziale:num(fd.get('cassa')),cassaData:fd.get('cassaData')||'',piva:String(fd.get('piva')||'').trim(),margineMin:num(fd.get('soglia')),ivaRegime:fd.get('iva')==='mens'?'mens':'trim'});toast('Impostazioni salvate');
   }
 });
 document.addEventListener('dragover',e=>{const d=e.target.closest('#drop');if(d){e.preventDefault();d.classList.add('over')}});
