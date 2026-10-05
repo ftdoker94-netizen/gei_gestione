@@ -389,7 +389,7 @@ function mSub(id,cid){
 function mOra(id,cid){
   if(id)return mOraEdit(id,cid);
   const dflt=8;
-  const righe=S.operai.map(p=>`<div class="opr"><label class="chk"><input type="checkbox" name="op_${esc(p.id)}"><span>${esc(p.nome)}<small> ${eur(p.costoOrario)}/h</small></span></label><input type="number" name="h_${esc(p.id)}" value="${dflt}" step="0.5" min="0" inputmode="decimal" aria-label="Ore ${esc(p.nome)}"></div>`).join('');
+  const righe=S.operai.map(p=>`<div class="opr"><label><input type="checkbox" name="op_${esc(p.id)}"><span>${esc(p.nome)}<small>${eur(p.costoOrario)}/h</small></span></label><input type="number" name="h_${esc(p.id)}" value="${dflt}" step="0.5" min="0" inputmode="decimal" aria-label="Ore ${esc(p.nome)}"></div>`).join('');
   modal('Nuovo rapportino',`<div class="fields">
     ${F.t('data','Data',today(),{type:'date',req:1})}${F.m('ore','Ore per tutti',dflt,{step:'0.5'})}
     <div class="f full"><span>Operai presenti <button type="button" class="link" id="opall">Seleziona tutti</button></span><div class="oplist">${righe||'<p class="note" style="margin:0">Nessun operaio in elenco: aggiungine uno qui sotto.</p>'}</div></div>
