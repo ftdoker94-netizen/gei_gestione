@@ -194,6 +194,7 @@ function cassa(){
   let rIn=0,rOut=0;
   S.sal.forEach(x=>{if(num(x.incassato)>0&&okD(x.dataIncasso||x.data))rIn+=num(x.incassato)});
   S.costi.filter(x=>x.stato!=='ordine'&&x.pagato&&okD(x.data)).forEach(x=>{rOut+=num(x.importo)});
+  S.scad.filter(x=>x.pagato&&num(x.importo)>0&&okD(x.dataPag||x.data)).forEach(x=>{rOut+=num(x.importo)});
   const attuale=k.cassa+rIn-rOut;
   S.scad.filter(x=>!x.pagato&&num(x.importo)>0).forEach(x=>{const i=idx(x.data);if(i<W)weeks[i].tax+=num(x.importo)});
   let s=attuale;
@@ -795,17 +796,79 @@ function vCassa(){
   const c=cassa(),min=Math.min(...c.weeks.map(w=>w.saldo)),neg=c.weeks.find(w=>w.saldo<0);
   const tIn=sum(c.weeks,w=>w.inc),tOut=sum(c.weeks,w=>w.pag),tTax=sum(c.weeks,w=>w.tax),tFix=sum(c.weeks,w=>w.fix);
   return `<div class="page-h"><div><h1>Cassa e scadenze</h1><p>Parte dalla cassa attuale (cassa iniziale + incassi − pagamenti già registrati) e prosegue per 13 settimane con i SAL maturati e fatturati, le fatture dei fornitori non pagate, imposte e costi fissi.</p></div><button class="btn" data-act="nav" data-v="impost">Cassa iniziale e costi fissi</button></div>
-  <div class="kpis">${kpi('Cassa attuale',eur0(c.start),`iniziale ${eur0(c.iniziale)} + incassato ${eur0(c.rIn)} − pagato ${eur0(c.rOut)}`,'--s1')}${kpi('Incassi previsti',eur0(tIn),(c.scaduti?`di cui ${eur0(c.scaduti)} già scaduti`:'SAL fatturati')+(c.stimati?` · ${eur0(c.stimati)} di SAL maturati da fatturare, stimati a 60 giorni`:''),'--s3')}${kpi('Uscite previste',eur0(tOut+tTax),`fornitori ${eur0(tOut)} · imposte e rate ${eur0(tTax)}`,'--s2')}${kpi('Saldo minimo previsto',eur0(min),neg?'scende sotto zero dal '+dt(neg.da):'resta positivo','--s4')}</div>
+  <div class="kpis">${kpi('Cassa attuale',eur0(c.start),`iniziale ${eur0(c.iniziale)} + incassato ${eur0(c.rIn)} − pagato ${eur0(c.rOut)} (fornitori, imposte)`,'--s1')}${kpi('Incassi previsti',eur0(tIn),(c.scaduti?`di cui ${eur0(c.scaduti)} già scaduti`:'SAL fatturati')+(c.stimati?` · ${eur0(c.stimati)} di SAL maturati da fatturare, stimati a 60 giorni`:''),'--s3')}${kpi('Uscite previste',eur0(tOut+tTax),`fornitori ${eur0(tOut)} · imposte e rate ${eur0(tTax)}`,'--s2')}${kpi('Saldo minimo previsto',eur0(min),neg?'scende sotto zero dal '+dt(neg.da):'resta positivo','--s4')}</div>
   ${neg?`<div class="banner" style="margin-top:14px;border-left-color:var(--bad)">${pill('Urgente','bad')}<span>Il saldo previsto diventa negativo nella settimana del ${dt(neg.da)}. Valuta di anticipare un incasso o spostare un pagamento.</span></div>`:''}
   <div class="card sec"><h2>Saldo di cassa previsto</h2>${chartCassa(c)}<p class="note">Le ore degli operai non entrano qui: includi stipendi e costi di struttura nei costi fissi mensili (${eur0(cfg().fissi)} al mese, ${eur0(tFix)} nelle 13 settimane).</p></div>
   <div class="sec"><h2>Settimana per settimana</h2><div class="tw"><table><thead><tr><th>Dal</th><th class="n">Incassi</th><th class="n">Fornitori</th><th class="n">Imposte e rate</th><th class="n">Costi fissi</th><th class="n">Saldo</th></tr></thead><tbody>
   ${c.weeks.map(w=>`<tr><td>${dt(w.da)}</td><td class="n">${eur0(w.inc)}</td><td class="n">${eur0(w.pag)}</td><td class="n">${eur0(w.tax)}</td><td class="n">${eur0(w.fix)}</td><td class="n"><b>${eur0(w.saldo)}</b> ${w.saldo<0?pill('Negativo','bad'):''}</td></tr>`).join('')}</tbody></table></div>
   <p class="note">I pagamenti e gli incassi scaduti sono contati nella prima settimana.</p></div>${scadHtml()}`;
 }
+
+/* ---------- F24 in PDF ---------- */
+const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',PDFW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+async function pdfText(file){
+  if(!window.pdfjsLib){
+    await new Promise((ok,ko)=>{const el=document.createElement('script');el.src=PDFJS;el.onload=ok;el.onerror=()=>ko(new Error('lettura PDF non disponibile'));document.head.appendChild(el)});
+    const wc=await (await fetch(PDFW)).text();
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([wc],{type:'text/javascript'}));
+  }
+  const pdf=await window.pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  let out='';
+  for(let p=1;p<=pdf.numPages;p++){
+    const tc=await (await pdf.getPage(p)).getTextContent(),rows={};
+    tc.items.forEach(it=>{const t=it.str.trim();if(!t)return;const y=Math.round(it.transform[5]/3);(rows[y]=rows[y]||[]).push({x:it.transform[4],t})});
+    Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y=>{out+=rows[y].sort((a,b)=>a.x-b.x).map(i=>i.t).join('  ')+'\n'});
+  }
+  return out;
+}
+const itNum=x=>parseFloat(String(x).replace(/\./g,'').replace(',','.'))||0;
+function parseF24(t){
+  const flat=t.replace(/\s+/g,' ');
+  const m=flat.match(/Scadenza\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+  const data=m?`${m[3]}-${m[2]}-${m[1]}`:'';
+  const sm=flat.match(/SALDO FINALE.{0,400}?EURO\s*\+?\s*(-?[\d.]+,\d{2})/i)||flat.match(/EURO\s*\+\s*([\d.]+,\d{2})/i);
+  const tot=sm?itNum(sm[1]):0;
+  const a=flat.search(/SEZIONE ERARIO/i),b=flat.search(/SEZIONE INPS/i);
+  const er=a>=0?flat.slice(a,b>a?b:undefined):flat;
+  const codes=[];let r;const re=/(?:^|\s)(\d{4})\s+(?:\S{1,6}\s+)?(20\d{2})\s+-?[\d.]+,\d{2}/g;
+  while((r=re.exec(er))){if(!codes.some(c=>c.c===r[1]&&c.anno===r[2]))codes.push({c:r[1],anno:r[2]})}
+  const iR=flat.match(/SEZIONE INPS(.*?)SEZIONE REGIONI/i);
+  const inps=!!(iR&&/\d,\d{2}/.test(iR[1]));
+  const ty=new Set();
+  codes.forEach(({c})=>{ty.add(c==='6013'?'acciva':/^60\d\d$/.test(c)?'iva':/^200\d$/.test(c)?'ires':['3800','3801','3812','3813'].includes(c)?'irap':/^10\d\d$/.test(c)?'f24':'altro')});
+  if(inps)ty.add('f24');
+  const tipo=ty.size===1?[...ty][0]:'altro';
+  const anno=codes[0]?codes[0].anno:(data?data.slice(0,4):'');
+  const nomi={iva:'IVA',acciva:'Acconto IVA',ires:'IRES',irap:'IRAP',f24:'Ritenute e contributi'};
+  const cs=codes.map(c=>c.c);
+  const nome=nomi[tipo]||(cs.length===1&&cs[0]==='7085'?'Vidimazione libri sociali':cs.length?'codici '+cs.join(', '):'versamento');
+  return {data,tot,codes,tipo,titolo:`F24 · ${nome}${anno?' '+anno:''}`,inps};
+}
+async function importaF24(files,pagati){
+  ui.logF=[];let nuovi=0,agg=0,doppi=0,err=0;
+  const chiavi=new Set(S.scad.map(x=>x.chiave).filter(Boolean));
+  for(const file of files){
+    try{
+      const f=parseF24(await pdfText(file));
+      if(!f.data||!f.tot)throw new Error('non trovo data e importo: non sembra un F24 in formato standard');
+      const chiave=['f24',f.data,f.tot.toFixed(2),f.codes.map(c=>c.c).join('+')].join('|');
+      if(chiavi.has(chiave)){doppi++;ui.logF.push({k:'info',t:`${file.name}: già caricato`});continue}
+      chiavi.add(chiave);
+      const ex=f.tipo!=='altro'?S.scad.find(x=>!x.chiave&&x.tipo===f.tipo&&!x.pagato&&Math.abs((parse(x.data)-parse(f.data))/864e5)<=10):null;
+      const base={tipo:f.tipo,titolo:ex?ex.titolo:f.titolo,data:f.data,importo:f.tot,pagato:!!pagati,dataPag:pagati?f.data:'',chiave,origine:'f24'};
+      await put('scad',ex?{...ex,...base}:base);
+      if(ex)agg++;else nuovi++;
+      ui.logF.push({k:'good',t:`${file.name}: ${f.titolo}, ${eur(f.tot)}, ${dt(f.data)}${pagati?', pagato':', da pagare'}${ex?' (aggiornata una scadenza già in elenco)':''}`});
+    }catch(e){err++;ui.logF.push({k:'bad',t:`${file.name}: ${e.message}`})}
+  }
+  render();toast(nuovi+agg?`${nuovi+agg} F24 registrati`:(doppi&&!err?'F24 già presenti':'Nessun F24 registrato'));
+}
 function scadHtml(){
   const list=S.scad.slice().sort((a,b)=>(a.data||'').localeCompare(b.data||'')),t0=today();
   const st=x=>x.pagato?pill('Pagata','good'):!num(x.importo)?pill('Da stimare','warn'):x.data<t0?pill('Scaduta','bad'):pill('Da pagare','info');
-  return `<div class="sec"><h2>Scadenziario fiscale e rate <button class="btn pri sm" data-act="gen-scad">Genera scadenze canoniche</button><button class="btn sm" data-act="add-scad">Aggiungi scadenza</button></h2>
+  return `<div class="sec"><h2>Scadenziario fiscale e rate <button class="btn pri sm" data-act="gen-scad">Genera scadenze canoniche</button><button class="btn sm" data-act="pick-f24">Carica F24 (PDF)</button><input type="file" id="f24in" multiple accept=".pdf,application/pdf" hidden><button class="btn sm" data-act="add-scad">Aggiungi scadenza</button></h2>
+  <label class="row" style="gap:8px;margin:0 0 10px"><input type="checkbox" id="f24pag" checked> Gli F24 che carico sono già pagati (quietanze): registrali come spese pagate</label>
+  ${ui.logF&&ui.logF.length?`<ul class="log">${ui.logF.map(l=>`<li>${pill(l.k==='bad'?'Errore':l.k==='good'?'Fatto':'Info',l.k)} ${esc(l.t)}</li>`).join('')}</ul>`:''}
   ${list.length?`<div class="tw"><table><thead><tr><th>Data</th><th>Scadenza</th><th>Tipo</th><th class="n">Importo</th><th>Stato</th><th></th></tr></thead><tbody>
   ${list.map(x=>`<tr><td>${dt(x.data)}</td><td>${esc(x.titolo)}</td><td>${esc(TIPI[x.tipo]||'Altro')}</td><td class="n">${num(x.importo)?eur0(x.importo):'—'}</td><td>${st(x)}</td>
   <td><div class="acts"><button class="btn sm" data-act="paid-scad" data-id="${x.id}">${x.pagato?'Segna da pagare':'Segna pagata'}</button><button class="btn sm" data-act="edit-scad" data-id="${x.id}">Modifica</button>${delBtn('scad',x.id)}</div></td></tr>`).join('')}</tbody></table></div>`
@@ -891,6 +954,7 @@ document.addEventListener('click',async e=>{
      toast(n?`${n} scadenze aggiunte: inserisci gli importi stimati`:'Le scadenze ordinarie ci sono già');break}
    case 'add-op':mOperaio();break;
    case 'edit-op':mOperaio(id);break;
+   case 'pick-f24':{const f=$('#f24in');if(f)f.click();break}
    case 'pick':{const f=$('#fin');if(f)f.click();break}
    case 'assign':{
      const tr=el.closest('tr'),x=S.costi.find(y=>y.id===id);if(!x||!tr)break;
@@ -917,6 +981,7 @@ document.addEventListener('click',async e=>{
 document.addEventListener('change',e=>{
   const t=e.target;
   if(t.id==='fin'&&t.files&&t.files.length){importa(Array.from(t.files));t.value=''}
+  if(t.id==='f24in'&&t.files&&t.files.length){importaF24(Array.from(t.files),$('#f24pag')?$('#f24pag').checked:true);t.value=''}
   if(t.id==='cin'&&t.files&&t.files.length){importaClienti(t.files[0]);t.value=''}
   if(t.id==='catf'){ui.catFilter=t.value;render()}
   if(t.id==='per-da'){ui.da=t.value||ui.da;render()}
