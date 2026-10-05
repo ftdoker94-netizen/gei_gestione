@@ -387,17 +387,38 @@ function mSub(id,cid){
   d=>put('sub',{...s,cantiereId:cid,nome:d.nome.trim(),lavorazione:d.lavorazione,importo:num(d.importo),maturato:num(d.maturato),pagato:num(d.pagato)}));
 }
 function mOra(id,cid){
-  const o=S.ore.find(y=>y.id===id)||{data:today(),ore:8};
-  modal(id?'Modifica rapportino':'Nuovo rapportino',`<div class="fields">
+  if(id)return mOraEdit(id,cid);
+  const dflt=8;
+  const righe=S.operai.map(p=>`<div class="opr"><label class="chk"><input type="checkbox" name="op_${esc(p.id)}"><span>${esc(p.nome)}<small> ${eur(p.costoOrario)}/h</small></span></label><input type="number" name="h_${esc(p.id)}" value="${dflt}" step="0.5" min="0" inputmode="decimal" aria-label="Ore ${esc(p.nome)}"></div>`).join('');
+  modal('Nuovo rapportino',`<div class="fields">
+    ${F.t('data','Data',today(),{type:'date',req:1})}${F.m('ore','Ore per tutti',dflt,{step:'0.5'})}
+    <div class="f full"><span>Operai presenti <button type="button" class="link" id="opall">Seleziona tutti</button></span><div class="oplist">${righe||'<p class="note" style="margin:0">Nessun operaio in elenco: aggiungine uno qui sotto.</p>'}</div></div>
+    ${F.t('nuovo','Aggiungi nuovo operaio',''  ,{ph:'Nome e cognome'})}${F.m('costo','Costo orario nuovo (€/h)','')}
+    ${F.a('descrizione','Lavorazioni svolte',"",{cls:'full',ph:'Es. Demolizione tramezzo cucina, posa massetto bagno'})}
+  </div><p class="hint">Spunta chi ha lavorato: viene creato un rapportino per ciascuno. Le ore per tutti si possono correggere riga per riga.</p>`,
+  async d=>{
+    const sel=S.operai.filter(p=>d['op_'+p.id]).map(p=>({op:p,h:num(d['h_'+p.id])}));
+    if(d.nuovo.trim()){const nome=d.nuovo.trim(),nid=await put('operai',{nome,costoOrario:num(d.costo)});sel.push({op:{id:nid,nome,costoOrario:num(d.costo)},h:num(d.ore)})}
+    if(!sel.length){toast('Spunta almeno un operaio');return false}
+    for(const x of sel)await put('ore',{cantiereId:cid,operaioId:x.op.id,operaio:x.op.nome,data:d.data,ore:x.h,descrizione:d.descrizione.trim(),costoOrario:num(x.op.costoOrario)},true);
+    toast(sel.length>1?`${sel.length} rapportini registrati`:'Rapportino registrato');
+  },{init:f=>{
+    const rows=()=>[...f.querySelectorAll('.opr')];
+    f.querySelector('[name=ore]').addEventListener('input',e=>rows().forEach(r=>r.querySelector('input[type=number]').value=e.target.value));
+    const all=f.querySelector('#opall');
+    if(all)all.addEventListener('click',()=>{const cs=rows().map(r=>r.querySelector('input[type=checkbox]'));const on=cs.some(c=>!c.checked);cs.forEach(c=>c.checked=on);all.textContent=on?'Deseleziona tutti':'Seleziona tutti'});
+  }});
+}
+function mOraEdit(id,cid){
+  const o=S.ore.find(y=>y.id===id);if(!o)return;
+  modal('Modifica rapportino',`<div class="fields">
     ${F.s('operaioId','Operaio',[['','— scegli —']].concat(S.operai.map(p=>[p.id,`${p.nome} (${eur(p.costoOrario)}/h)`])),o.operaioId,{cls:'full'})}
-    ${F.t('nuovo','Oppure nuovo operaio',''  ,{ph:'Nome e cognome'})}${F.m('costo','Costo orario nuovo (€/h)','')}
     ${F.t('data','Data',o.data,{type:'date',req:1})}${F.m('ore','Ore lavorate',o.ore,{req:1})}
     ${F.a('descrizione','Lavorazioni svolte',o.descrizione,{cls:'full',ph:'Es. Demolizione tramezzo cucina, posa massetto bagno'})}
   </div>`,
   async d=>{
-    let op=S.operai.find(p=>p.id===d.operaioId);
-    if(d.nuovo.trim()){const nid=await put('operai',{nome:d.nuovo.trim(),costoOrario:num(d.costo)});op={id:nid,nome:d.nuovo.trim(),costoOrario:num(d.costo)}}
-    if(!op){toast('Scegli un operaio o inseriscine uno nuovo');return false}
+    const op=S.operai.find(p=>p.id===d.operaioId);
+    if(!op){toast('Scegli un operaio');return false}
     await put('ore',{...o,cantiereId:cid,operaioId:op.id,operaio:op.nome,data:d.data,ore:num(d.ore),descrizione:d.descrizione.trim(),costoOrario:o.costoOrario!=null&&o.operaioId===op.id?o.costoOrario:num(op.costoOrario)});
   });
 }
