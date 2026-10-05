@@ -11,7 +11,7 @@
     if (started) return; started = true;
     box.hidden = true;
     document.getElementById('appwrap').hidden = false;
-    const s = document.createElement('script'); s.src = 'app.js?v=8'; document.body.appendChild(s);
+    const s = document.createElement('script'); s.src = 'app.js?v=9'; document.body.appendChild(s);
   }
   window.geiLogout = async () => { await window.GEI_SB.auth.signOut(); location.reload(); };
 

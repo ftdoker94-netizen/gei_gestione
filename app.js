@@ -386,12 +386,12 @@ function mSub(id,cid){
   </div><p class="hint">Le fatture XML con lo stesso nome ditta si collegano da sole a questo contratto.</p>`,
   d=>put('sub',{...s,cantiereId:cid,nome:d.nome.trim(),lavorazione:d.lavorazione,importo:num(d.importo),maturato:num(d.maturato),pagato:num(d.pagato)}));
 }
-function mOra(id,cid){
+function mOra(id,cid,dd){
   if(id)return mOraEdit(id,cid);
   const dflt=8;
   const righe=S.operai.map(p=>`<div class="opr"><label><input type="checkbox" name="op_${esc(p.id)}"><span>${esc(p.nome)}<small>${eur(p.costoOrario)}/h</small></span></label><input type="number" name="h_${esc(p.id)}" value="${dflt}" step="0.5" min="0" inputmode="decimal" aria-label="Ore ${esc(p.nome)}"></div>`).join('');
   modal('Nuovo rapportino',`<div class="fields">
-    ${F.t('data','Data',today(),{type:'date',req:1})}${F.m('ore','Ore per tutti',dflt,{step:'0.5'})}
+    ${F.t('data','Data',dd||today(),{type:'date',req:1})}${F.m('ore','Ore per tutti',dflt,{step:'0.5'})}
     <div class="f full"><span>Operai presenti <button type="button" class="link" id="opall">Seleziona tutti</button></span><div class="oplist">${righe||'<p class="note" style="margin:0">Nessun operaio in elenco: aggiungine uno qui sotto.</p>'}</div></div>
     ${F.t('nuovo','Aggiungi nuovo operaio',''  ,{ph:'Nome e cognome'})}${F.m('costo','Costo orario nuovo (€/h)','')}
     ${F.a('descrizione','Lavorazioni svolte',"",{cls:'full',ph:'Es. Demolizione tramezzo cucina, posa massetto bagno'})}
@@ -589,7 +589,7 @@ function vCantiere(){
   const c=S.cantieri.find(x=>x.id===ui.cid);
   if(!c){ui.view='cantieri';return vCantieri()}
   const k=calc(c);
-  const tabs=[['panoramica','Panoramica'],['costi','Costi'],['sal','SAL e ricavi'],['sub','Subappalti'],['ore','Ore operai'],['scost','Scostamenti']];
+  const tabs=[['panoramica','Panoramica'],['costi','Costi'],['sal','SAL e ricavi'],['sub','Subappalti'],['ore','Rapportini'],['scost','Scostamenti']];
   const head=`<div class="site-h"><div class="thumb">${svg(ICON.img)}</div><div class="info"><h1>${esc(c.nome)} ${statoPill(c.stato)}</h1>
     <div class="meta">${esc(c.descrizione||'')}</div><div class="meta">${esc(c.indirizzo||'')}${c.committente?' · '+esc(c.committente):''}</div>
     <div class="row" style="margin-top:8px"><button class="btn sm" data-act="edit-c" data-id="${c.id}">Modifica cantiere</button><button class="link" data-act="nav" data-v="cantieri">Tutti i cantieri</button></div></div>
@@ -679,12 +679,14 @@ function tSub(c,k){
 }
 function tOre(c,k){
   const by={};k.ore.forEach(o=>{const n=o.operaio||'—';by[n]=by[n]||{h:0,v:0};by[n].h+=num(o.ore);by[n].v+=num(o.ore)*num(o.costoOrario)});
-  const list=k.ore.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  const list=k.ore.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||'')||(a.operaio||'').localeCompare(b.operaio||''));
+  const gm={};list.forEach(o=>{const d=o.data||'';(gm[d]=gm[d]||{d,r:[],h:0,v:0});const g=gm[d];g.r.push(o);g.h+=num(o.ore);g.v+=num(o.ore)*num(o.costoOrario)});
+  const giorni=Object.values(gm).sort((a,b)=>b.d.localeCompare(a.d));
   return `<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="add-ora" data-cid="${c.id}">Nuovo rapportino</button><button class="link" data-act="nav" data-v="impost">Gestisci operai e costo orario</button></div>
   ${Object.keys(by).length?`<div class="chips" style="margin-bottom:12px">${Object.entries(by).map(([n,v])=>`<span class="chip">${esc(n)}: <b>${v.h} h</b> · <b>${eur0(v.v)}</b></span>`).join('')}</div>`:''}
-  ${list.length?`<div class="tw"><table><thead><tr><th>Data</th><th>Operaio</th><th class="n">Ore</th><th class="n">€/h</th><th class="n">Costo</th><th></th></tr></thead><tbody>
-  ${list.map(o=>`<tr><td>${dt(o.data)}</td><td>${esc(o.operaio)}${o.descrizione?`<span class="sub" style="white-space:normal;max-width:340px">${esc(o.descrizione)}</span>`:''}</td><td class="n">${num(o.ore)}</td><td class="n">${eur(o.costoOrario)}</td><td class="n">${eur(num(o.ore)*num(o.costoOrario))}</td><td><div class="acts"><button class="btn sm" data-act="edit-ora" data-id="${o.id}" data-cid="${c.id}">Modifica</button>${delBtn('ore',o.id)}</div></td></tr>`).join('')}
-  </tbody><tfoot><tr><td colspan="2">Totale</td><td class="n">${k.oreTot}</td><td></td><td class="n">${eur(k.cons.manodopera-sum(k.costi.filter(x=>x.categoria==='manodopera'&&x.stato!=='ordine'),x=>x.importo))}</td><td></td></tr></tfoot></table></div>`
+  ${list.length?`<div class="tw"><table><thead><tr><th>Operaio</th><th class="n">Ore</th><th class="n">€/h</th><th class="n">Costo</th><th></th></tr></thead><tbody>
+  ${giorni.map(g=>`<tr class="dayh"><td colspan="5"><b>${dt(g.d)}</b><span>${g.r.length} ${g.r.length===1?'operaio':'operai'} · ${g.h} h · ${eur(g.v)}</span><button class="btn sm" data-act="add-ora" data-cid="${c.id}" data-d="${esc(g.d)}">Aggiungi a questo giorno</button></td></tr>`+g.r.map(o=>`<tr><td>${esc(o.operaio)}${o.descrizione?`<span class="sub" style="white-space:normal;max-width:340px">${esc(o.descrizione)}</span>`:''}</td><td class="n">${num(o.ore)}</td><td class="n">${eur(o.costoOrario)}</td><td class="n">${eur(num(o.ore)*num(o.costoOrario))}</td><td><div class="acts"><button class="btn sm" data-act="edit-ora" data-id="${o.id}" data-cid="${c.id}">Modifica</button>${delBtn('ore',o.id)}</div></td></tr>`).join('')).join('')}
+  </tbody><tfoot><tr><td>Totale</td><td class="n">${k.oreTot}</td><td></td><td class="n">${eur(k.cons.manodopera-sum(k.costi.filter(x=>x.categoria==='manodopera'&&x.stato!=='ordine'),x=>x.importo))}</td><td></td></tr></tfoot></table></div>`
   :`<div class="empty"><h3>Nessun rapportino</h3><span>Registra chi ha lavorato e quante ore. Il costo della manodopera si calcola da solo con il costo orario di ciascuno.</span></div>`}`;
 }
 function tScost(c,k){
@@ -952,7 +954,7 @@ document.addEventListener('click',async e=>{
    case 'incasso':mIncasso(id);break;
    case 'add-sub':mSub('',cid);break;
    case 'edit-sub':mSub(id,cid);break;
-   case 'add-ora':mOra('',cid);break;
+   case 'add-ora':mOra('',cid,el.dataset.d);break;
    case 'edit-ora':mOra(id,cid);break;
    case 'add-cli':mCliente();break;
    case 'edit-cli':mCliente(id);break;

@@ -235,3 +235,5 @@ details.alt summary{cursor:pointer;color:var(--ink-2);font-size:13px}
 .f .opr label small{font-size:12px;font-weight:400;color:var(--ink-2)}
 .f .opr>input{text-align:right;padding:6px 8px}
 .f .opr:not(:has(input[type=checkbox]:checked))>input{opacity:.45}
+.dayh td{background:var(--surface-2);padding:8px 12px}
+.dayh td b{font-size:15px;margin-right:12px}.dayh td span{color:var(--ink-2);font-size:13px;margin-right:12px}.dayh td .btn{float:right}
