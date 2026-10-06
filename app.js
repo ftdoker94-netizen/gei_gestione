@@ -164,7 +164,7 @@ function cassa(){
   const mon=d=>{const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-((x.getDay()+6)%7));return x};
   const start=mon(new Date()),t0=today();
   const W=13,weeks=[];
-  for(let i=0;i<W;i++){const d=new Date(start);d.setDate(d.getDate()+7*i);weeks.push({da:iso(d),inc:0,pag:0,tax:0,fix:0,saldo:0})}
+  for(let i=0;i<W;i++){const d=new Date(start);d.setDate(d.getDate()+7*i);weeks.push({da:iso(d),inc:0,pag:0,tax:0,fix:0,cant:0,saldo:0})}
   const idx=s=>{if(s<t0)s=t0;const diff=Math.floor((parse(s)-start)/(7*864e5));return diff<0?0:diff};
   let scaduti=0;const incassi=[],pagamenti=[];
   S.cantieri.forEach(c=>{
@@ -190,6 +190,15 @@ function cassa(){
     const d=x.scadenza||addDays(x.data,30),i=idx(d);if(i<W)weeks[i].pag+=num(x.importo);
     pagamenti.push({d,v:num(x.importo),f:x.fornitore});
   });
+  const cantPrev=[];let cantTot=0;
+  S.cantieri.filter(c=>c.stato==='in_corso').forEach(c=>{
+    const kk=calc(c),p=previsione(c,kk);if(!p.ok||p.ritardo||p.resto<=0)return;
+    const res=CK.filter(x=>x!=='manodopera').reduce((a,x)=>a+Math.max(0,p.cat[x].prev-p.cat[x].cons-p.cat[x].imp),0);
+    if(res<=0)return;
+    const rate=res/Math.max(1,p.resto/7),nw=Math.min(W,Math.max(1,Math.ceil(p.resto/7)));
+    for(let i=0;i<nw;i++)weeks[i].cant+=rate;
+    const quota=Math.min(res,rate*nw);cantTot+=quota;cantPrev.push({nome:c.nome,res,fine:c.fine,att:p.att[0]});
+  });
   const k=cfg(),fixW=k.fissi*12/52,base=k.cassaData,okD=d=>!base||(d&&d>=base);
   let rIn=0,rOut=0;
   S.sal.forEach(x=>{if(num(x.incassato)>0&&okD(x.dataIncasso||x.data))rIn+=num(x.incassato)});
@@ -198,8 +207,8 @@ function cassa(){
   const attuale=k.cassa+rIn-rOut;
   S.scad.filter(x=>!x.pagato&&num(x.importo)>0).forEach(x=>{const i=idx(x.data);if(i<W)weeks[i].tax+=num(x.importo)});
   let s=attuale;
-  weeks.forEach(w=>{w.fix=fixW;s=s+w.inc-w.pag-w.tax-w.fix;w.saldo=s});
-  return {weeks,scaduti,start:attuale,iniziale:k.cassa,rIn,rOut,stimati,incassi,pagamenti};
+  weeks.forEach(w=>{w.fix=fixW;s=s+w.inc-w.pag-w.tax-w.fix-w.cant;w.saldo=s});
+  return {weeks,cantPrev,cantTot,scaduti,start:attuale,iniziale:k.cassa,rIn,rOut,stimati,incassi,pagamenti};
 }
 
 /* ---------- fatture elettroniche ---------- */
@@ -850,14 +859,14 @@ function chartCassa(c,half){
 }
 function vCassa(){
   const c=cassa(),min=Math.min(...c.weeks.map(w=>w.saldo)),neg=c.weeks.find(w=>w.saldo<0);
-  const tIn=sum(c.weeks,w=>w.inc),tOut=sum(c.weeks,w=>w.pag),tTax=sum(c.weeks,w=>w.tax),tFix=sum(c.weeks,w=>w.fix);
+  const tIn=sum(c.weeks,w=>w.inc),tOut=sum(c.weeks,w=>w.pag),tTax=sum(c.weeks,w=>w.tax),tCant=c.cantTot,tFix=sum(c.weeks,w=>w.fix);
   return `<div class="page-h"><div><h1>Cassa e scadenze</h1><p>Parte dalla cassa attuale (cassa iniziale + incassi − pagamenti già registrati) e prosegue per 13 settimane con i SAL maturati e fatturati, le fatture dei fornitori non pagate, imposte e costi fissi.</p></div><button class="btn" data-act="nav" data-v="impost">Cassa iniziale e costi fissi</button></div>
-  <div class="kpis">${kpi('Cassa attuale',eur0(c.start),`iniziale ${eur0(c.iniziale)} + incassato ${eur0(c.rIn)} − pagato ${eur0(c.rOut)} (fornitori, imposte)`,'--s1')}${kpi('Incassi previsti',eur0(tIn),(c.scaduti?`di cui ${eur0(c.scaduti)} già scaduti`:'SAL fatturati')+(c.stimati?` · ${eur0(c.stimati)} di SAL maturati da fatturare, stimati a 60 giorni`:''),'--s3')}${kpi('Uscite previste',eur0(tOut+tTax),`fornitori ${eur0(tOut)} · imposte e rate ${eur0(tTax)}`,'--s2')}${kpi('Saldo minimo previsto',eur0(min),neg?'scende sotto zero dal '+dt(neg.da):'resta positivo','--s4')}</div>
+  <div class="kpis">${kpi('Cassa attuale',eur0(c.start),`iniziale ${eur0(c.iniziale)} + incassato ${eur0(c.rIn)} − pagato ${eur0(c.rOut)} (fornitori, imposte)`,'--s1')}${kpi('Incassi previsti',eur0(tIn),(c.scaduti?`di cui ${eur0(c.scaduti)} già scaduti`:'SAL fatturati')+(c.stimati?` · ${eur0(c.stimati)} di SAL maturati da fatturare, stimati a 60 giorni`:''),'--s3')}${kpi('Uscite previste',eur0(tOut+tTax+tCant),`fornitori ${eur0(tOut)} · imposte e rate ${eur0(tTax)}`+(tCant?` · cantieri (previsione) ${eur0(tCant)}`:''),'--s2')}${kpi('Saldo minimo previsto',eur0(min),neg?'scende sotto zero dal '+dt(neg.da):'resta positivo','--s4')}</div>
   ${neg?`<div class="banner" style="margin-top:14px;border-left-color:var(--bad)">${pill('Urgente','bad')}<span>Il saldo previsto diventa negativo nella settimana del ${dt(neg.da)}. Valuta di anticipare un incasso o spostare un pagamento.</span></div>`:''}
   <div class="card sec"><h2>Saldo di cassa previsto</h2>${chartCassa(c)}<p class="note">Le ore degli operai non entrano qui: includi stipendi e costi di struttura nei costi fissi mensili (${eur0(cfg().fissi)} al mese, ${eur0(tFix)} nelle 13 settimane).</p></div>
-  <div class="sec"><h2>Settimana per settimana</h2><div class="tw"><table><thead><tr><th>Dal</th><th class="n">Incassi</th><th class="n">Fornitori</th><th class="n">Imposte e rate</th><th class="n">Costi fissi</th><th class="n">Saldo</th></tr></thead><tbody>
-  ${c.weeks.map(w=>`<tr><td>${dt(w.da)}</td><td class="n">${eur0(w.inc)}</td><td class="n">${eur0(w.pag)}</td><td class="n">${eur0(w.tax)}</td><td class="n">${eur0(w.fix)}</td><td class="n"><b>${eur0(w.saldo)}</b> ${w.saldo<0?pill('Negativo','bad'):''}</td></tr>`).join('')}</tbody></table></div>
-  <p class="note">I pagamenti e gli incassi scaduti sono contati nella prima settimana.</p></div>${scadHtml()}`;
+  <div class="sec"><h2>Settimana per settimana</h2><div class="tw"><table><thead><tr><th>Dal</th><th class="n">Incassi</th><th class="n">Fornitori</th><th class="n">Cantieri previsti</th><th class="n">Imposte e rate</th><th class="n">Costi fissi</th><th class="n">Saldo</th></tr></thead><tbody>
+  ${c.weeks.map(w=>`<tr><td>${dt(w.da)}</td><td class="n">${eur0(w.inc)}</td><td class="n">${eur0(w.pag)}</td><td class="n">${eur0(w.cant)}</td><td class="n">${eur0(w.tax)}</td><td class="n">${eur0(w.fix)}</td><td class="n"><b>${eur0(w.saldo)}</b> ${w.saldo<0?pill('Negativo','bad'):''}</td></tr>`).join('')}</tbody></table></div>
+  <p class="note">I pagamenti e gli incassi scaduti sono contati nella prima settimana.${c.cantPrev.length?` <b>Cantieri previsti</b>: spesa ancora da sostenere su ${c.cantPrev.map(x=>`${esc(x.nome)} (${eur0(x.res)} fino al ${dt(x.fine)}, attendibilità ${x.att})`).join(', ')}, esclusa la manodopera (da includere nei costi fissi) e ripartita in parti uguali fino alla fine lavori.`:''}</p></div>${scadHtml()}`;
 }
 
 /* ---------- F24 in PDF ---------- */
@@ -1066,7 +1075,7 @@ document.addEventListener('pointermove',e=>{
   const x=(e.clientX-r.left)*(c.W/r.width);let best=0,bd=1e9;
   c.weeks.forEach((w,i)=>{const d=Math.abs(c.X(i)-x);if(d<bd){bd=d;best=i}});
   const w=c.weeks[best];cx.setAttribute('x1',c.X(best));cx.setAttribute('x2',c.X(best));cx.setAttribute('visibility','visible');
-  tip.innerHTML=`<b>Settimana dal ${dt(w.da)}</b><div><span>Incassi</span><span>${eur0(w.inc)}</span></div><div><span>Fornitori</span><span>${eur0(w.pag)}</span></div><div><span>Imposte e rate</span><span>${eur0(w.tax)}</span></div><div><span>Costi fissi</span><span>${eur0(w.fix)}</span></div><div><span>Saldo</span><b>${eur0(w.saldo)}</b></div>`;
+  tip.innerHTML=`<b>Settimana dal ${dt(w.da)}</b><div><span>Incassi</span><span>${eur0(w.inc)}</span></div><div><span>Fornitori</span><span>${eur0(w.pag)}</span></div><div><span>Cantieri (previsione)</span><span>${eur0(w.cant)}</span></div><div><span>Imposte e rate</span><span>${eur0(w.tax)}</span></div><div><span>Costi fissi</span><span>${eur0(w.fix)}</span></div><div><span>Saldo</span><b>${eur0(w.saldo)}</b></div>`;
   tip.hidden=false;
   const px=c.X(best)*(r.width/c.W),tw=tip.offsetWidth;
   tip.style.left=Math.max(0,Math.min(r.width-tw,px+12))+'px';tip.style.top='8px';
