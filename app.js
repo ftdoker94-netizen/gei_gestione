@@ -95,6 +95,8 @@ async function putConfig(patch){
 let tt=0;function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3800)}
 
 /* ---------- calcoli ---------- */
+const incs=s=>Array.isArray(s.incassi)?s.incassi:(num(s.incassato)>0?[{d:s.dataIncasso||s.data||"",v:num(s.incassato)}]:[]);
+const incTot=s=>sum(incs(s),x=>x.v);
 function calc(c){
   const costi=S.costi.filter(x=>x.cantiereId===c.id);
   const subs=S.sub.filter(x=>x.cantiereId===c.id);
@@ -124,7 +126,7 @@ function calc(c){
   const rit=num(c.ritenutaPct)/100;
   const sal=S.sal.filter(x=>x.cantiereId===c.id).sort((a,b)=>num(a.n)-num(b.n));
   const maturato=sum(sal,s=>s.importo),fatturato=sum(sal.filter(s=>s.fatturato),s=>s.importo);
-  const incassato=sum(sal,s=>s.incassato);
+  const incassato=sum(sal,s=>incTot(s));
   const ritenute=maturato*rit;
   const daIncassare=Math.max(0,sum(sal.filter(s=>s.fatturato),s=>num(s.importo)*(1-rit))-incassato);
   const avanz=contratto?maturato/contratto:0;
@@ -148,12 +150,12 @@ function periodo(c,da,a){
 }
 const cfg=()=>({fissi:num(S.config.costiFissiMensili),cassa:num(S.config.cassaIniziale),cassaData:S.config.cassaData||'',soglia:S.config.margineMin==null?10:num(S.config.margineMin),iva:S.config.ivaRegime||'trim'});
 function salStato(s,c){
-  const rit=num(c.ritenutaPct)/100,res=num(s.importo)*(1-rit)-num(s.incassato);
+  const rit=num(c.ritenutaPct)/100,res=num(s.importo)*(1-rit)-incTot(s);
   if(!s.fatturato)return {t:'Da fatturare',k:'warn'};
   if(res<=0.5)return {t:'Incassato',k:'good'};
   const sc=s.scadenza||addDays(s.dataFattura||s.data,60);
   if(sc<today())return {t:'Scaduto',k:'bad'};
-  return {t:num(s.incassato)>0?'Incasso parziale':'Da incassare',k:'info'};
+  return {t:incTot(s)>0?'Incasso parziale':'Da incassare',k:'info'};
 }
 const pill=(t,k)=>`<span class="pill ${k||'mute'}"><i></i>${esc(t)}</span>`;
 const daAssegnare=()=>S.costi.filter(x=>!x.cantiereId||!S.cantieri.some(c=>c.id===x.cantiereId));
@@ -170,7 +172,7 @@ function cassa(){
   S.cantieri.forEach(c=>{
     const rit=num(c.ritenutaPct)/100;
     S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{
-      const res=num(s.importo)*(1-rit)-num(s.incassato);if(res<=0.5)return;
+      const res=num(s.importo)*(1-rit)-incTot(s);if(res<=0.5)return;
       const d=s.scadenza||addDays(s.dataFattura||s.data,60);
       if(d<t0)scaduti+=res;
       const i=idx(d);if(i<W)weeks[i].inc+=res;
@@ -201,7 +203,7 @@ function cassa(){
   });
   const k=cfg(),fixW=k.fissi*12/52,base=k.cassaData,okD=d=>!base||(d&&d>=base);
   let rIn=0,rOut=0;
-  S.sal.forEach(x=>{if(num(x.incassato)>0&&okD(x.dataIncasso||x.data))rIn+=num(x.incassato)});
+  S.sal.forEach(x=>incs(x).forEach(i=>{if(num(i.v)>0&&okD(i.d||x.data))rIn+=num(i.v)}));
   S.costi.filter(x=>x.stato!=='ordine'&&x.pagato&&okD(x.data)).forEach(x=>{rOut+=num(x.importo)});
   S.scad.filter(x=>x.pagato&&num(x.importo)>0&&okD(x.dataPag||x.data)).forEach(x=>{rOut+=num(x.importo)});
   const attuale=k.cassa+rIn-rOut;
@@ -376,15 +378,27 @@ function mSal(id,cid){
     ${F.m('importo','Importo maturato nel SAL (€)',s.importo,{req:1,cls:'full'})}
     ${F.c('fatturato','SAL fatturato',s.fatturato,{cls:'full'})}
     ${F.t('dataFattura','Data fattura',s.dataFattura,{type:'date'})}${F.t('scadenza','Scadenza incasso',s.scadenza,{type:'date'})}
-    ${F.m('incassato','Incassato finora (€)',s.incassato||0)}${F.t('dataIncasso','Data ultimo incasso',s.dataIncasso,{type:'date'})}
-  </div><p class="hint">Se non indichi la scadenza, per la previsione di cassa si assumono 60 giorni dalla fattura.</p>`,
-  d=>put('sal',{...s,cantiereId:cid,n:num(d.n),data:d.data,importo:num(d.importo),fatturato:!!d.fatturato,dataFattura:d.dataFattura,scadenza:d.scadenza,incassato:num(d.incassato),dataIncasso:d.dataIncasso}));
+  </div><p class="hint">Se non indichi la scadenza, per la previsione di cassa si assumono 60 giorni dalla fattura. Gli incassi (anche in più date) si registrano dal pulsante «Incassi» del SAL.</p>`,
+  d=>put('sal',{...s,cantiereId:cid,n:num(d.n),data:d.data,importo:num(d.importo),fatturato:!!d.fatturato,dataFattura:d.dataFattura,scadenza:d.scadenza}));
+}
+function salSave(s,list){
+  const l=list.filter(x=>num(x.v)>0).map(x=>({d:x.d||today(),v:num(x.v)})).sort((p,q)=>p.d.localeCompare(q.d));
+  return put('sal',{...s,incassi:l,incassato:sum(l,x=>x.v),dataIncasso:l.length?l[l.length-1].d:''});
 }
 function mIncasso(id){
   const s=S.sal.find(y=>y.id===id),c=s&&S.cantieri.find(y=>y.id===s.cantiereId);if(!s||!c)return;
-  const res=Math.max(0,num(s.importo)*(1-num(c.ritenutaPct)/100)-num(s.incassato));
-  modal(`Incasso SAL ${s.n}`,`<div class="fields">${F.m('v','Importo incassato (€)',res.toFixed(2),{req:1})}${F.t('d','Data incasso',today(),{type:'date',req:1})}</div>`,
-  d=>put('sal',{...s,fatturato:true,incassato:num(s.incassato)+num(d.v),dataIncasso:d.d}),{save:'Registra'});
+  const res=Math.max(0,num(s.importo)*(1-num(c.ritenutaPct)/100)-incTot(s));
+  modal(`Nuovo incasso · SAL ${s.n}`,`<div class="fields">${F.m('v','Importo incassato (€)',res.toFixed(2),{req:1})}${F.t('d','Data incasso',today(),{type:'date',req:1})}</div><p class="hint">Da incassare ancora: ${eur(res)}. Se il cliente paga a rate, registra qui ogni versamento con la sua data.</p>`,
+  d=>salSave({...s,fatturato:true},incs(s).concat([{d:d.d,v:num(d.v)}])),{save:'Registra'});
+}
+function mIncassi(id){
+  const s=S.sal.find(y=>y.id===id),c=s&&S.cantieri.find(y=>y.id===s.cantiereId);if(!s||!c)return;
+  const l=incs(s).slice().sort((p,q)=>(p.d||'').localeCompare(q.d||''));
+  const dovuto=num(s.importo)*(1-num(c.ritenutaPct)/100);
+  const riga=(x,i)=>`<div class="inr"><input type="date" name="d${i}" value="${esc(x.d||'')}" aria-label="Data"><input type="number" name="v${i}" value="${x.v!=null&&x.v!==''?num(x.v):''}" step="0.01" inputmode="decimal" placeholder="Importo €" aria-label="Importo"></div>`;
+  const rows=l.concat([{d:today(),v:''},{d:today(),v:''}]);
+  modal(`Incassi · SAL ${s.n}`,`<p class="hint" style="margin-top:0">Dovuto al netto delle ritenute: <b>${eur(dovuto)}</b>. Incassato: <b>${eur(incTot(s))}</b>. Per togliere un incasso svuota il suo importo.</p><div class="inl">${rows.map(riga).join('')}</div>`,
+  d=>salSave({...s,fatturato:true},rows.map((_,i)=>({d:d['d'+i],v:d['v'+i]}))));
 }
 function mSub(id,cid){
   const s=S.sub.find(y=>y.id===id)||{importo:'',maturato:0,pagato:0};
@@ -521,7 +535,7 @@ function prossime(){
   const t0=today(),lim=addDays(t0,60),out=[];
   S.scad.filter(x=>!x.pagato).forEach(x=>out.push({d:x.data,dir:-1,t:x.titolo,v:num(x.importo),kind:'Imposte',stim:!num(x.importo)}));
   S.costi.filter(x=>x.stato!=='ordine'&&!x.pagato&&num(x.importo)>0).forEach(x=>out.push({d:x.scadenza||addDays(x.data,30),dir:-1,t:'Fattura '+(x.fornitore||'fornitore')+(x.cantiereId?' · '+cName(x.cantiereId):''),v:num(x.importo),kind:'Fornitori'}));
-  S.cantieri.forEach(c=>{const rit=num(c.ritenutaPct)/100;S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{const res=num(s.importo)*(1-rit)-num(s.incassato);if(res<=0.5)return;out.push({d:s.scadenza||addDays(s.dataFattura||s.data,60),dir:1,t:`${c.nome} · SAL ${s.n}`,v:res,kind:'Incassi'})})});
+  S.cantieri.forEach(c=>{const rit=num(c.ritenutaPct)/100;S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{const res=num(s.importo)*(1-rit)-incTot(s);if(res<=0.5)return;out.push({d:s.scadenza||addDays(s.dataFattura||s.data,60),dir:1,t:`${c.nome} · SAL ${s.n}`,v:res,kind:'Incassi'})})});
   S.cantieri.forEach(c=>{const rit=num(c.ritenutaPct)/100;S.sal.filter(s=>s.cantiereId===c.id&&!s.fatturato&&num(s.importo)>0).forEach(s=>{const d0=addDays(s.data||t0,60);out.push({d:d0<t0?t0:d0,dir:1,t:`${c.nome} · SAL ${s.n} (da fatturare, stima)`,v:num(s.importo)*(1-rit),kind:'Incassi'})})});
   return out.filter(x=>x.d&&x.d<=lim).sort((a,b)=>a.d.localeCompare(b.d));
 }
@@ -552,7 +566,7 @@ function vImpresa(){
   if(da.length)todo.push({k:'warn',t:`${da.length} fatture da assegnare a un cantiere`,go:'fatture',lab:'Assegna'});
   rows.forEach(({c,k:kk})=>{
     if(kk.daFatturare>1)todo.push({k:'warn',t:`${c.nome}: ${eur0(kk.daFatturare)} di SAL maturati da fatturare`,cid:c.id,tab:'sal'});
-    S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{const st=salStato(s,c);if(st.k==='bad')todo.push({k:'bad',t:`${c.nome}: SAL ${s.n} scaduto, da incassare ${eur0(num(s.importo)*(1-kk.rit)-num(s.incassato))}`,cid:c.id,tab:'sal'})});
+    S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{const st=salStato(s,c);if(st.k==='bad')todo.push({k:'bad',t:`${c.nome}: SAL ${s.n} scaduto, da incassare ${eur0(num(s.importo)*(1-kk.rit)-incTot(s))}`,cid:c.id,tab:'sal'})});
     if(c.stato!=='chiuso'&&!kk.haBudget)todo.push({k:'info',t:`${c.nome}: imposta il budget costi per vedere il margine previsto`,cid:c.id,tab:'scost'});
     else if(c.stato!=='chiuso'&&kk.contratto&&kk.marginePct<k.soglia)todo.push({k:'bad',t:`${c.nome}: margine previsto ${pct(kk.marginePct)}, sotto la soglia del ${pct(k.soglia,0)}`,cid:c.id,tab:'scost'});
     if(c.budgetProvvisorio)todo.push({k:'info',t:`${c.nome}: il budget costi è un esempio da sostituire con il tuo`,cid:c.id,tab:'scost'});
@@ -705,8 +719,8 @@ function tSal(c,k){
   return `<div class="kpis k6 sm">${kpi('Maturato',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s1')}${kpi('Fatturato',eur0(k.fatturato),'','--s3')}${kpi('Incassato',eur0(k.incassato),'','--s2')}${kpi('Da fatturare',eur0(k.daFatturare),'SAL non ancora fatturati','--s4')}${kpi('Da incassare',eur0(k.daIncassare),'al netto delle ritenute','--s5')}${kpi('Ritenute',eur0(k.ritenute),pct(c.ritenutaPct||0)+' sul maturato','--s1')}</div>
   <div class="sec"><h2>Stati di avanzamento <button class="btn pri sm" data-act="add-sal" data-cid="${c.id}">Nuovo SAL</button></h2>
   ${k.sal.length?`<div class="tw"><table><thead><tr><th>SAL</th><th>Data</th><th class="n">Importo</th><th class="n">% contratto</th><th>Stato</th><th>Scadenza</th><th class="n">Incassato</th><th></th></tr></thead><tbody>
-  ${k.sal.map(s=>{const st=salStato(s,c);return `<tr><td>N° ${s.n}</td><td>${dt(s.data)}</td><td class="n">${eur(s.importo)}</td><td class="n">${pct(k.contratto?num(s.importo)/k.contratto*100:0)}</td><td>${pill(st.t,st.k)}</td><td>${s.fatturato?dt(s.scadenza||addDays(s.dataFattura||s.data,60)):'—'}</td><td class="n">${eur(s.incassato)}</td>
-  <td><div class="acts">${s.fatturato&&st.k!=='good'?`<button class="btn sm" data-act="incasso" data-id="${s.id}">Registra incasso</button>`:''}<button class="btn sm" data-act="edit-sal" data-id="${s.id}" data-cid="${c.id}">Modifica</button>${delBtn('sal',s.id)}</div></td></tr>`}).join('')}
+  ${k.sal.map(s=>{const st=salStato(s,c);return `<tr><td>N° ${s.n}</td><td>${dt(s.data)}</td><td class="n">${eur(s.importo)}</td><td class="n">${pct(k.contratto?num(s.importo)/k.contratto*100:0)}</td><td>${pill(st.t,st.k)}</td><td>${s.fatturato?dt(s.scadenza||addDays(s.dataFattura||s.data,60)):'—'}</td><td class="n">${eur(incTot(s))}${incs(s).length>1?`<span class="sub">${incs(s).map(i=>dts(i.d)+' '+eur0(i.v)).join(' · ')}</span>`:(incs(s).length?`<span class="sub">${dts(incs(s)[0].d)}</span>`:'')}</td>
+  <td><div class="acts">${s.fatturato&&st.k!=='good'?`<button class="btn sm" data-act="incasso" data-id="${s.id}">Registra incasso</button>`:''}${incs(s).length?`<button class="btn sm" data-act="incassi" data-id="${s.id}">Incassi</button>`:''}<button class="btn sm" data-act="edit-sal" data-id="${s.id}" data-cid="${c.id}">Modifica</button>${delBtn('sal',s.id)}</div></td></tr>`}).join('')}
   </tbody><tfoot><tr><td colspan="2">Totale</td><td class="n">${eur(k.maturato)}</td><td class="n">${pct(k.avanz*100)}</td><td colspan="2"></td><td class="n">${eur(k.incassato)}</td><td></td></tr></tfoot></table></div>`
   :`<div class="empty"><h3>Nessun SAL registrato</h3><span>Quando emetti il primo stato di avanzamento, registralo qui: da lì seguo maturato, fatturato e incassato.</span><button class="btn pri" data-act="add-sal" data-cid="${c.id}">Registra il primo SAL</button></div>`}</div>`;
 }
@@ -994,6 +1008,7 @@ document.addEventListener('click',async e=>{
    case 'add-sal':mSal('',cid);break;
    case 'edit-sal':mSal(id,cid);break;
    case 'incasso':mIncasso(id);break;
+   case 'incassi':mIncassi(id);break;
    case 'add-sub':mSub('',cid);break;
    case 'edit-sub':mSub(id,cid);break;
    case 'add-ora':mOra('',cid,el.dataset.d);break;

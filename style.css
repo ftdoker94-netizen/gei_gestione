@@ -237,3 +237,4 @@ details.alt summary{cursor:pointer;color:var(--ink-2);font-size:13px}
 .f .opr:not(:has(input[type=checkbox]:checked))>input{opacity:.45}
 .dayh td{background:var(--surface-2);padding:8px 12px}
 .dayh td b{font-size:15px;margin-right:12px}.dayh td span{color:var(--ink-2);font-size:13px;margin-right:12px}.dayh td .btn{float:right}
+.inl{display:grid;gap:8px}.inr{display:grid;grid-template-columns:1fr 1fr;gap:10px}.inr input{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:8px 10px;min-width:0;width:100%}
