@@ -776,6 +776,7 @@ function tScost(c,k){
   <div class="sec"><h2>Segnalazioni</h2><div class="card"><div class="todo">${alerts.length?alerts.map(i=>`<div class="it">${pill(i.k==='bad'?'Urgente':'Attenzione',i.k)}<span class="t">${esc(i.t)}</span></div>`).join(''):`<div class="it">${pill('In linea','good')}<span class="t">Nessuno scostamento oltre il budget.</span></div>`}</div></div></div>`;
 }
 
+const cantieriDi=c=>S.cantieri.filter(x=>x.clienteId?x.clienteId===c.id:norm(x.committente)===norm(c.nome));
 const cliName=id=>{const c=S.clienti.find(x=>x.id===id);return c?c.nome:'—'};
 function vClienti(){
   const P=S.preventivi,t0=today();
@@ -804,10 +805,10 @@ function vClienti(){
   :`<div class="empty"><h3>${P.length?'Nessun preventivo in questo stato':'Nessun preventivo'}</h3><span>${P.length?'Cambia filtro per vedere gli altri.':'Registra il primo preventivo: quando il cliente accetta, lo trasformi in cantiere con un click.'}</span>${P.length?'':'<button class="btn pri" data-act="add-prev">Nuovo preventivo</button>'}</div>`}
   <p class="note">Gli importi sono al netto di IVA, come i costi. Il contratto del cantiere parte dall'importo del preventivo accettato.</p></div>
   <div class="sec"><h2>Clienti ${S.clienti.length?pill(String(S.clienti.length),'mute'):''}<button class="btn sm" data-act="pick-cli">Importa da CSV</button><input type="file" id="cin" accept=".csv,text/csv" hidden></h2>
-  ${cl.length?`<div class="tw"><table><thead><tr><th>Cliente</th><th>Contatti</th><th class="n">Preventivi</th><th class="n">Accettato</th><th></th></tr></thead><tbody>
-  ${cl.map(c=>{const pp=P.filter(p=>p.clienteId===c.id);return `<tr><td>${esc(c.nome)}<span class="sub">${esc(TCLI[c.tipo]||'')}${c.indirizzo?' · '+esc(c.indirizzo):''}</span></td>
-   <td>${esc(c.telefono||'')}${c.email?`<span class="sub">${esc(c.email)}</span>`:''}${!c.telefono&&!c.email?'—':''}</td><td class="n">${pp.length}</td><td class="n">${eur0(sum(pp.filter(p=>p.stato==='accettato'),p=>p.importo))}</td>
-   <td><div class="acts"><button class="btn sm" data-act="add-prev" data-cid="${c.id}">Nuovo preventivo</button><button class="btn sm" data-act="edit-cli" data-id="${c.id}">Modifica</button>${delBtn('clienti',c.id)}</div></td></tr>`}).join('')}
+  ${cl.length?`<div class="tw"><table><thead><tr><th>Cliente</th><th>Contatti</th><th>Cantieri</th><th class="n">Preventivi</th><th class="n">Accettato</th><th></th></tr></thead><tbody>
+  ${cl.map(c=>{const pp=P.filter(p=>p.clienteId===c.id);const cc=cantieriDi(c);return `<tr><td>${esc(c.nome)}<span class="sub">${esc(TCLI[c.tipo]||'')}${c.indirizzo?' · '+esc(c.indirizzo):''}</span></td>
+   <td>${esc(c.telefono||'')}${c.email?`<span class="sub">${esc(c.email)}</span>`:''}${!c.telefono&&!c.email?'—':''}</td><td>${cc.length?cc.map(x=>`<button class="link" data-act="open-c" data-id="${x.id}">${esc(x.nome)}</button>`).join('<br>'):'<span class="sub">nessuno</span>'}</td><td class="n">${pp.length}</td><td class="n">${eur0(sum(pp.filter(p=>p.stato==='accettato'),p=>p.importo))}</td>
+   <td><div class="acts"><button class="btn sm" data-act="add-prev" data-cid="${c.id}">Nuovo preventivo</button><button class="btn sm" data-act="new-c-cli" data-id="${c.id}">Nuovo cantiere</button><button class="btn sm" data-act="edit-cli" data-id="${c.id}">Modifica</button>${delBtn('clienti',c.id)}</div></td></tr>`}).join('')}
   </tbody></table></div>`
   :`<div class="empty"><h3>Nessun cliente</h3><span>Aggiungi i clienti a mano oppure importa un file CSV con colonne come Nome, Telefono, Email e Indirizzo, esportato dal tuo vecchio CRM.</span></div>`}
   <p class="note">Nel CSV riconosco le intestazioni Nome (o Ragione sociale), Telefono, Email, Indirizzo e Note. I nomi già presenti non vengono duplicati.</p></div>`;
@@ -1009,6 +1010,7 @@ document.addEventListener('click',async e=>{
    case 'open-c':go('cantiere',id,el.dataset.tab||'panoramica');break;
    case 'tab':ui.tab=el.dataset.tab;ui.periodoOpen=false;saveUi();render();break;
    case 'new-c':mCantiere();break;
+   case 'new-c-cli':mCantiere('',{clienteId:id,committente:cliName(id)});break;
    case 'edit-c':mCantiere(id);break;
    case 'budget':mBudget(id);break;
    case 'cat':ui.open[el.dataset.k]=!ui.open[el.dataset.k];render();break;
@@ -1064,6 +1066,7 @@ document.addEventListener('click',async e=>{
      break}
    case 'del':{
      if(el.dataset.col==='clienti'&&S.preventivi.some(p=>p.clienteId===id)){toast('Il cliente ha preventivi collegati: eliminali prima');break}
+     if(el.dataset.col==='clienti'){const cl0=S.clienti.find(x=>x.id===id);if(cl0&&cantieriDi(cl0).length){toast('Il cliente ha cantieri collegati: non si può eliminare');break}}
      const k=el.dataset.col+':'+id;
      if(ui.pend===k){ui.pend='';await del(el.dataset.col,id);toast('Eliminato')}
      else{ui.pend=k;render();setTimeout(()=>{if(ui.pend===k){ui.pend='';render()}},3500)}
