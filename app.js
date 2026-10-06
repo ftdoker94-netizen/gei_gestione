@@ -327,12 +327,15 @@ const closeModal=()=>{const ov=$('#ov');ov.hidden=true;ov.innerHTML=''};
 const catOpts=()=>CAT.map(c=>[c.k,c.n]);
 const cantOpts=(blank)=>(blank?[['','— scegli —']]:[]).concat(S.cantieri.map(c=>[c.id,c.nome]));
 
-function mCantiere(id){
-  const c=S.cantieri.find(x=>x.id===id)||{stato:'in_corso',inizio:today(),ritenutaPct:0,keywords:''};
+function mCantiere(id,draft){
+  const c={...(S.cantieri.find(x=>x.id===id)||{stato:'in_corso',inizio:today(),ritenutaPct:0,keywords:''}),...(draft||{})};
+  const cliSel=S.clienti.find(x=>x.id===c.clienteId)||S.clienti.find(x=>norm(x.nome)===norm(c.committente));
+  const cliVal=cliSel?cliSel.nome:(c.committente||'');
   modal(id?'Modifica cantiere':'Nuovo cantiere',`<div class="fields">
     ${F.t('nome','Nome cantiere',c.nome,{req:1,cls:'full',ph:'Es. Appartamento Trani'})}
     ${F.t('descrizione','Descrizione',c.descrizione,{cls:'full'})}
-    ${F.t('indirizzo','Indirizzo',c.indirizzo)}${F.t('committente','Committente',c.committente)}
+    ${F.t('indirizzo','Indirizzo',c.indirizzo)}<label class="f"><span>Committente (cliente)</span><input name="committente" id="f-committente" list="dl-cli" autocomplete="off" required placeholder="${S.clienti.length?'Scrivi per cercare o scegli':'Nessun cliente: crealo prima'}" value="${esc(cliVal)}"><datalist id="dl-cli">${S.clienti.map(x=>`<option value="${esc(x.nome)}"></option>`).join('')}</datalist></label>
+    <div class="f full" style="flex-direction:row;align-items:center;gap:10px;margin-top:-4px"><button type="button" class="link" id="newcli">+ Nuovo cliente</button><span class="sub" style="white-space:normal">${cliSel?'':'Il committente deve essere un cliente già inserito in anagrafica.'}</span></div>
     ${F.m('contratto','Importo di contratto (€)',c.contratto||'',{req:1})}
     ${F.s('stato','Stato',[['da_avviare','Da avviare'],['in_corso','In corso'],['chiuso','Chiuso']],c.stato)}
     ${F.t('inizio','Inizio lavori',c.inizio,{type:'date'})}${F.t('fine','Fine lavori prevista',c.fine,{type:'date'})}
@@ -341,11 +344,20 @@ function mCantiere(id){
     ${F.t('keywords','Parole chiave per riconoscere le fatture',c.keywords,{cls:'full',ph:'Trani, Via Toscana'})}
   </div><p class="hint">Le parole chiave servono a assegnare da sole le fatture XML a questo cantiere, quando compaiono nella descrizione delle righe.</p>`,
   async d=>{
+    const cli=S.clienti.find(x=>norm(x.nome)===norm(d.committente));
+    if(!cli){toast('Scegli un cliente già in anagrafica, oppure creane uno nuovo');const f=$('#f-committente');if(f)f.focus();return false}
     const base=c.id?c:{budget:{}};
-    const nid=await put('cantieri',{...base,id:c.id,nome:d.nome.trim(),descrizione:d.descrizione,indirizzo:d.indirizzo,committente:d.committente,
+    const nid=await put('cantieri',{...base,id:c.id,nome:d.nome.trim(),descrizione:d.descrizione,indirizzo:d.indirizzo,committente:cli.nome,clienteId:cli.id,
       contratto:num(d.contratto),stato:d.stato,inizio:d.inizio,fine:d.fine,ritenutaPct:num(d.ritenutaPct),cup:d.cup.trim(),cig:d.cig.trim(),keywords:d.keywords});
     if(!c.id){ui.view='cantiere';ui.cid=nid;ui.tab='panoramica';saveUi()}
-  });
+  },{init:f=>{
+    const nb=f.querySelector('#newcli');
+    if(nb)nb.addEventListener('click',()=>{
+      const fd=new FormData(f),dr={};fd.forEach((v,k)=>dr[k]=v);
+      const draft={nome:dr.nome,descrizione:dr.descrizione,indirizzo:dr.indirizzo,contratto:dr.contratto,stato:dr.stato,inizio:dr.inizio,fine:dr.fine,ritenutaPct:dr.ritenutaPct,cup:dr.cup,cig:dr.cig,keywords:dr.keywords,committente:''};
+      mCliente('',nid=>setTimeout(()=>mCantiere(id,{...draft,clienteId:nid}),0));
+    });
+  }});
 }
 function mBudget(id){
   const c=S.cantieri.find(x=>x.id===id);if(!c)return;
@@ -463,7 +475,7 @@ function mScad(id){
     }
   });
 }
-function mCliente(id){
+function mCliente(id,after){
   const c=S.clienti.find(y=>y.id===id)||{tipo:'privato'};
   modal(id?'Modifica cliente':'Nuovo cliente',`<div class="fields">
     ${F.t('nome','Nome o ragione sociale',c.nome,{req:1,cls:'full'})}
@@ -471,7 +483,7 @@ function mCliente(id){
     ${F.t('telefono','Telefono',c.telefono,{inputmode:'tel'})}${F.t('email','Email',c.email,{type:'email'})}
     ${F.t('indirizzo','Indirizzo',c.indirizzo,{cls:'full'})}${F.t('note','Note',c.note,{cls:'full'})}
   </div>`,
-  d=>put('clienti',{...c,nome:d.nome.trim(),tipo:d.tipo,origine:d.origine,telefono:d.telefono.trim(),email:d.email.trim(),indirizzo:d.indirizzo,note:d.note}));
+  async d=>{const nid=await put('clienti',{...c,nome:d.nome.trim(),tipo:d.tipo,origine:d.origine,telefono:d.telefono.trim(),email:d.email.trim(),indirizzo:d.indirizzo,note:d.note});if(after)after(c.id||nid)});
 }
 function mPrev(id,clienteId){
   const p=S.preventivi.find(y=>y.id===id)||{clienteId:clienteId||'',data:today(),stato:'bozza',prossimo:''};
