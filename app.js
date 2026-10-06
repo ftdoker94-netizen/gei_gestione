@@ -601,6 +601,38 @@ function vCantiere(){
   const body={panoramica:tPanoramica,costi:tCosti,sal:tSal,sub:tSub,ore:tOre,scost:tScost}[ui.tab]||tPanoramica;
   return head+tabsH+body(c,k);
 }
+function previsione(c,k){
+  if(!c.inizio||!c.fine||c.fine<=c.inizio)return {ok:false,motivo:!c.fine?'Imposta la data di fine lavori per attivare la previsione.':'Controlla le date: la fine lavori deve essere dopo l\'inizio.'};
+  const dd=(a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
+  const tot=dd(c.inizio,c.fine),t=today();
+  if(t<c.inizio)return {ok:false,motivo:'Il cantiere non è ancora iniziato: la previsione parte dal primo giorno di lavori.'};
+  const el=Math.max(1,Math.min(tot,dd(c.inizio,t)+1)),f=el/tot,ritardo=t>c.fine;
+  const cat={};CK.forEach(x=>{cat[x]={cons:k.cons[x],imp:k.imp[x],bud:k.bud[x],prev:Math.max(k.cons[x]+k.imp[x],k.cons[x]*(ritardo?1:tot/el))}});
+  const prevT=CK.reduce((a,x)=>a+cat[x].prev,0);
+  const perAv=k.avanz>=0.05?Math.max(k.consT+k.impT,k.consT/k.avanz):null;
+  const att=f<0.15?['bassa','warn']:f<0.4?['media','info']:['buona','good'];
+  const resto=Math.max(0,dd(t,c.fine));
+  return {ok:true,tot,el,f,ritardo,cat,prevT,perAv,att,resto,giorno:k.consT/el,mese:k.consT/el*30,
+    margT:k.contratto-prevT,margAv:perAv==null?null:k.contratto-perAv};
+}
+function boxPrevisione(c,k){
+  const p=previsione(c,k);
+  if(!p.ok)return `<div class="sec"><div class="card"><h2>Previsione di chiusura</h2><p class="note" style="margin:0">${esc(p.motivo)}</p></div></div>`;
+  const mx=Math.max(1,p.prevT,k.budT,k.contratto*0)*1.05;
+  const righe=CAT.map(t=>{const x=p.cat[t.k];if(!x.cons&&!x.imp&&!x.bud)return '';
+    const over=x.bud&&x.prev>x.bud;
+    return `<tr><td><span class="catdot" style="--c:var(${t.c})"></span>${t.n}</td><td class="n">${eur0(x.cons)}</td><td class="n">${eur0(x.prev)}</td><td class="n">${x.bud?eur0(x.bud):'—'}</td><td>${x.bud?(over?pill('Oltre budget','bad'):pill('In budget','good')):''}</td></tr>`}).join('');
+  const marg=(v)=>v==null?'—':`<b style="color:var(${v<0?"--bad-ink":"--good-ink"})">${eur0(v)}</b>`;
+  return `<div class="sec"><h2>Previsione di chiusura ${pill('Attendibilità '+p.att[0],p.att[1])}</h2><div class="card">
+   <p class="note" style="margin-top:0">${p.ritardo?'Il cantiere ha superato la fine lavori prevista: la previsione coincide con quanto speso e impegnato.':`Dopo ${p.el} giorni su ${p.tot} (${pct(p.f*100)} del tempo) hai speso ${eur0(k.consT)}: ${eur0(p.giorno)} al giorno, circa ${eur0(p.mese)} al mese. Mancano ${p.resto} giorni alla fine.`}</p>
+   <div class="tw"><table><thead><tr><th>Categoria</th><th class="n">Speso</th><th class="n">Previsione a fine</th><th class="n">Budget</th><th></th></tr></thead><tbody>${righe}</tbody>
+   <tfoot><tr><td>Totale</td><td class="n">${eur0(k.consT)}</td><td class="n">${eur0(p.prevT)}</td><td class="n">${k.budT?eur0(k.budT):'—'}</td><td></td></tr></tfoot></table></div>
+   <dl class="dl" style="margin-top:14px">
+    <dt>Margine finale con la media nel tempo</dt><dd>${marg(p.margT)}</dd>
+    <dt>Margine finale in base all'avanzamento SAL (${pct(k.avanz*100)})</dt><dd>${p.perAv==null?'<span class="sub">serve almeno il 5% di avanzamento</span>':`${marg(p.margAv)} <span class="sub">costo finale ${eur0(p.perAv)}</span>`}</dd></dl>
+   <p class="note">La media nel tempo funziona bene per la manodopera ma non per materiali e subappalti, che pesano a blocchi. Più il lavoro procede, più la stima diventa affidabile. Le voci impegnate (ordini) non sono mai conteggiate meno del loro valore.</p>
+  </div></div>`;
+}
 function tPanoramica(c,k){
   const p=periodo(c,ui.da,ui.a);
   const ban=c.budgetProvvisorio?`<div class="banner">${pill('Esempio','warn')}<span>Il budget costi di questo cantiere è provvisorio. Sostituiscilo con quello del tuo computo per avere un margine affidabile.</span><button class="btn sm" data-act="budget" data-id="${c.id}">Imposta budget</button></div>`:(!k.haBudget?`<div class="banner">${pill('Budget mancante','info')}<span>Senza budget costi non posso stimare il margine finale.</span><button class="btn sm" data-act="budget" data-id="${c.id}">Imposta budget</button></div>`:'');
@@ -621,6 +653,7 @@ function tPanoramica(c,k){
     <dt class="tot">Margine previsto</dt><dd class="tot">${k.haBudget||k.consT?eur0(k.margine):'—'}</dd>
     <dt>Margine maturato oggi (SAL − costi)</dt><dd>${eur0(k.maturatoMargine)}</dd></dl></div>
   </div>
+  ${boxPrevisione(c,k)}
   <div class="kpis k3 sm sec">
    ${kpi('Giorni lavorativi',String(p.giorni),`giorni con registrazioni nel periodo`,'--s1')}
    ${kpi('Costo totale periodo',eur(p.tot),'nel periodo selezionato','--s2')}
