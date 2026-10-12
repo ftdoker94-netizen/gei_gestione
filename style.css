@@ -261,7 +261,18 @@ details.alt summary{cursor:pointer;color:var(--ink-2);font-size:13px}
 .al{border-left:4px solid #b42318;background:#fdf1f0;padding:6px 10px;border-radius:4px}.al ul{margin:0;padding-left:18px}
 .rf{display:flex;justify-content:space-between;gap:12px;margin-top:18px;padding-top:6px;border-top:1px solid #d6dde2;font-size:10.5px;color:#6b7b85}
 @media (max-width:700px){.sheet{padding:10px;font-size:12px}.rkk{grid-template-columns:repeat(2,1fr)}.g2{grid-template-columns:1fr}.rc dl{grid-template-columns:auto 1fr}.rb{grid-template-columns:100px 1fr 48px}}
+#rep .sheet.pres{padding:10mm 12mm;font-size:11px}
+.pres .ph{display:flex;gap:10px;align-items:center;border:1px solid #1b2a33;border-bottom:0;padding:5px 8px}.pres .ph img{height:34px}.pres .ph div{flex:1;text-align:center}.pres .ph h1{font-size:17px;margin:0;letter-spacing:.01em}.pres .ph p{margin:1px 0 0;font-size:8.5px;color:#333}
+.pres .pt{border:1px solid #1b2a33;border-bottom:0;text-align:center;font-weight:700;padding:3px;font-size:12px;background:#eef1f3}
+.pres table{width:100%;border-collapse:collapse}.pres th,.pres td{border:1px solid #1b2a33;padding:2px 6px;font-size:11px;text-transform:none;letter-spacing:0;color:#1b2a33}
+.pres .pi th{background:#eef1f3;text-align:left;width:34mm;font-size:10px}.pres .pi .mm{font-weight:700;width:38mm}
+.pres .pg{margin-top:0}.pres .pg thead th{background:#2a3036;color:#fff;text-transform:uppercase;font-size:10px;text-align:center}
+.pres .pg td{height:6.1mm;padding:0 6px;vertical-align:middle;font-size:10.5px}.pres .pg .gg{text-align:center;font-weight:700}.pres .pg .gg i{font-style:normal;font-weight:400;color:#6b7b85;font-size:8px;margin-left:3px;text-transform:uppercase}
+.pres .pg tr.we td{background:#f1f3f5}.pres .pg tr.off td{background:#fafafa}.pres .pg tfoot td{background:#dfe3e6;font-weight:700;border-top:2px solid #1b2a33}
+.pres .pf{margin-top:3mm}.pres .pf th{text-align:left;width:52mm;height:9mm;background:#fff;font-size:10px}
+.sheet.pres+.sheet.pres{margin-top:16px}
 @media print{
+  .sheet.pres{break-after:page;page-break-after:always;padding:10mm 12mm}.sheet.pres:last-child{break-after:auto;page-break-after:auto}
   @page{size:A4;margin:0}
   body.rep-on>*:not(#rep){display:none!important}
   body.rep-on{background:#fff!important;padding:0!important}

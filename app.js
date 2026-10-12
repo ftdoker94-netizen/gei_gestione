@@ -507,8 +507,8 @@ function mPrev(id,clienteId){
 }
 function mOperaio(id){
   const p=S.operai.find(y=>y.id===id)||{};
-  modal(id?'Modifica operaio':'Nuovo operaio',`<div class="fields">${F.t('nome','Nome',p.nome,{req:1,cls:'full'})}${F.m('costo','Costo orario aziendale (€/h)',p.costoOrario||'',{req:1})}</div><p class="hint">I rapportini già inseriti mantengono il costo orario di quando sono stati registrati.</p>`,
-  d=>put('operai',{...p,nome:d.nome.trim(),costoOrario:num(d.costo)}));
+  modal(id?'Modifica operaio':'Nuovo operaio',`<div class="fields">${F.t('nome','Nome',p.nome,{req:1,cls:'full'})}${F.t('qualifica','Qualifica / Mansione',p.qualifica||'',{cls:'full'})}${F.m('costo','Costo orario aziendale (€/h)',p.costoOrario||'',{req:1})}</div><p class="hint">I rapportini già inseriti mantengono il costo orario di quando sono stati registrati.</p>`,
+  d=>put('operai',{...p,nome:d.nome.trim(),qualifica:(d.qualifica||'').trim(),costoOrario:num(d.costo)}));
 }
 
 /* ---------- viste ---------- */
@@ -731,13 +731,33 @@ function presDati(da,a,opId){
 }
 const hh=v=>(Math.round(v*100)/100).toString().replace('.',',');
 const mLab=m=>MESI_L[+m.slice(5)-1]+' '+m.slice(0,4);
-function presHtml(da,a,opId,det){
-  const L=presDati(da,a,opId);
-  const head=`<div class="rh"><img src="logo.png" alt="GEI Gruppo Edile Immobiliare"><div class="rr"><h1>Presenze operai</h1><p>Ore per mese e per cantiere</p><p>Periodo ${dt(da)} – ${dt(a)}</p><p class="sm">Emesso il ${dt(today())}</p></div></div>`;
-  const body=L.length?L.map(op=>`<div class="rs"><h3>${esc(op.nome)} <span class="mu">· totale ${hh(op.h)} h</span></h3>
-   ${Object.keys(op.mesi).sort().map(m=>{const ms=op.mesi[m];
-    return `<table><thead><tr><th>${mLab(m)}</th><th class="n">Giorni</th><th class="n">Ore</th></tr></thead><tbody>${Object.values(ms.cant).sort((x,y)=>y.h-x.h).map(ct=>`<tr><td>${esc(ct.nome)}${det?`<em>${Object.keys(ct.gg).sort().map(g=>dts(g)+' '+hh(ct.gg[g])+' h').join(' · ')}</em>`:''}</td><td class="n">${Object.keys(ct.gg).length}</td><td class="n">${hh(ct.h)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Totale ${mLab(m)}</td><td class="n">${new Set(Object.values(ms.cant).flatMap(ct=>Object.keys(ct.gg))).size}</td><td class="n">${hh(ms.h)}</td></tr></tfoot></table>`}).join('')}</div>`).join(''):'<p class="mu">Nessun rapportino nel periodo scelto.</p>';
-  return `<div class="sheet">${head}<div class="rc"><h2>${opId&&L[0]?esc(L[0].nome):'Tutti gli operai'}</h2></div>${body}<div class="rf"><span>${AZ.nome} · P.IVA ${AZ.piva} · ${AZ.sede}</span><span>Presenze da rapportini</span></div></div>`;
+function presHtml(da,a,opId){
+  const L=presDati(da,a,opId),fogli=[];
+  const GG=['dom','lun','mar','mer','gio','ven','sab'];
+  L.forEach(op=>{
+    const p=S.operai.find(x=>x.nome===op.nome||x.id===op.key);
+    Object.keys(op.mesi).sort().forEach(m=>{
+      const ms=op.mesi[m],y=+m.slice(0,4),mo=+m.slice(5),nd=new Date(y,mo,0).getDate();
+      let righe='';
+      for(let g=1;g<=31;g++){
+        if(g>nd){righe+=`<tr class="off"><td class="gg">${g}</td><td></td><td></td><td></td></tr>`;continue}
+        const ds=m+'-'+pad(g),wd=new Date(y,mo-1,g).getDay();
+        const voci=Object.values(ms.cant).filter(ct=>ct.gg[ds]);
+        const tot=sum(voci,ct=>ct.gg[ds]);
+        const cn=voci.length>1?voci.map(ct=>esc(ct.nome)+' ('+hh(ct.gg[ds])+' h)').join(' · '):voci.map(ct=>esc(ct.nome)).join('');
+        righe+=`<tr class="${wd===0||wd===6?'we':''}"><td class="gg">${g}<i>${GG[wd]}</i></td><td>${cn}</td><td class="n">${voci.length?hh(tot):''}</td><td></td></tr>`;
+      }
+      fogli.push(`<div class="sheet pres">
+  <div class="ph"><img src="logo.png" alt="GEI"><div><h1>${esc(AZ.nome.toUpperCase().replace('GRUPPO EDILE IMMOBILIARE','GEI GRUPPO EDILE IMMOBILIARE'))}</h1><p>Sede Legale: Via Terracina 325 – 04017 San Felice Circeo (LT) | Sede Operativa: Via delle Arene 145 – 04019 Terracina (LT)</p><p>P.IVA / C.F.: ${AZ.piva} | Tel: 0773 1481236 | PEC: geigruppoedileimmobiliare@pec.it | Email: info@geigruppoedileimmobiliare.it</p></div></div>
+  <div class="pt">SCHEDA PRESENZE MENSILE INDIVIDUALE</div>
+  <table class="pi"><tr><th>Mese / Anno</th><td class="mm">${MESI_L[mo-1].toUpperCase()} ${y}</td><th>Nome e Cognome Operaio</th><td>${esc(op.nome)}</td></tr><tr><th></th><td></td><th>Qualifica / Mansione</th><td>${esc((p&&p.qualifica)||'')}</td></tr></table>
+  <table class="pg"><thead><tr><th style="width:15mm">Giorni</th><th>Cantiere / Commessa</th><th class="n" style="width:24mm">Ore lavorate</th><th style="width:42mm">Firma operaio</th></tr></thead><tbody>${righe}</tbody>
+  <tfoot><tr><td colspan="2" style="text-align:center">TOTALE ORE MESE</td><td class="n">${hh(ms.h)}</td><td></td></tr></tfoot></table>
+  <table class="pf"><tr><th>Firma Preposto / Capocantiere:</th><td></td></tr><tr><th>Firma Direttore Tecnico:</th><td></td></tr><tr><th>Firma Amministrativo:</th><td></td></tr></table>
+  </div>`);
+    });
+  });
+  return fogli.length?fogli.join(''):`<div class="sheet"><p class="mu">Nessun rapportino nel periodo scelto.</p></div>`;
 }
 function mPresenze(opId){
   const t=today(),y=t.slice(0,4),mm=t.slice(5,7);
@@ -745,10 +765,9 @@ function mPresenze(opId){
   modal('Report presenze operai',`<div class="fields">
    ${F.s('op','Operaio',[['','Tutti gli operai']].concat(S.operai.slice().sort((p,q)=>p.nome.localeCompare(q.nome)).map(p=>[p.id,p.nome])),opId||'',{cls:'full'})}
    ${F.t('da','Dal',y+'-'+mm+'-01',{type:'date',req:1})}${F.t('a','Al',y+'-'+mm+'-'+String(last).padStart(2,'0'),{type:'date',req:1})}
-   <div class="f full">${F.c('det','Dettaglio dei giorni lavorati per cantiere',false)}</div>
-  </div><p class="hint">Mostra solo ore e cantieri, senza costi. Il periodo può coprire più mesi: ogni operaio ha una tabella per mese. Con il CSV ottieni un file per Excel.</p>`,
+  </div><p class="hint">Mostra solo ore e cantieri, senza costi. Per ogni operaio e per ogni mese del periodo viene creata una scheda A4 con il calendario dei giorni, il cantiere e le ore. Con il CSV ottieni un file per Excel.</p>`,
   d=>{if(d.da>d.a){toast('La data iniziale deve precedere quella finale');return false}
-    setTimeout(()=>apriPresenze(d.da,d.a,d.op,!!d.det),0)},{save:'Crea anteprima',init:f=>{
+    setTimeout(()=>apriPresenze(d.da,d.a,d.op),0)},{save:'Crea anteprima',init:f=>{
     if(!DL)return;const b=document.createElement('button');b.type='button';b.className='btn';b.textContent='Scarica CSV';
     b.onclick=async()=>{const da=f.querySelector('[name=da]').value,a=f.querySelector('[name=a]').value,op=f.querySelector('[name=op]').value;
       if(!da||!a||da>a){toast('Controlla le date');return}
@@ -758,9 +777,9 @@ function mPresenze(opId){
       try{await DL.save({filename:'presenze-'+da+'_'+a+'.csv',data:'﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n')})}catch(err){if(err&&err.code!=='declined')toast('Esportazione non riuscita')}};
     const foot=f.querySelector('.mfoot');(foot||f).insertBefore(b,foot?foot.children[1]||null:null)}});
 }
-function apriPresenze(da,a,op,det){
+function apriPresenze(da,a,op){
   let r=$('#rep');if(!r){r=document.createElement('div');r.id='rep';document.body.appendChild(r)}
-  r.innerHTML=`<div class="rbar"><button class="btn" data-act="rep-close">Chiudi</button><span>Anteprima · A4</span><button class="btn pri" data-act="rep-print">Salva come PDF / Stampa</button></div><div class="rwrap">${presHtml(da,a,op,det)}</div>`;
+  r.innerHTML=`<div class="rbar"><button class="btn" data-act="rep-close">Chiudi</button><span>Anteprima · A4</span><button class="btn pri" data-act="rep-print">Salva come PDF / Stampa</button></div><div class="rwrap">${presHtml(da,a,op)}</div>`;
   r.hidden=false;document.body.classList.add('rep-on');document.title=`Presenze ${da} ${a}`;
 }
 function chiudiReport(){const r=$('#rep');if(r){r.hidden=true;r.innerHTML=''}document.body.classList.remove('rep-on');document.title='Controllo di gestione'}
