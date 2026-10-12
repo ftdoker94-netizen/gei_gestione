@@ -713,6 +713,55 @@ function apriReport(c,tipo,da,a,opt){
   r.hidden=false;document.body.classList.add('rep-on');
   document.title=`Report ${c.nome} ${da} ${a}`;
 }
+
+const MESI_L=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
+function presDati(da,a,opId){
+  const ore=S.ore.filter(o=>o.data&&o.data>=da&&o.data<=a&&num(o.ore)>0&&(!opId||(o.operaioId||('n:'+norm(o.operaio)))===opId));
+  const ops={};
+  ore.forEach(o=>{
+    const key=o.operaioId||('n:'+norm(o.operaio));
+    const p=S.operai.find(x=>x.id===o.operaioId);
+    const op=ops[key]=ops[key]||{key,nome:(p?p.nome:o.operaio)||'—',mesi:{},h:0};
+    const m=o.data.slice(0,7),ms=op.mesi[m]=op.mesi[m]||{m,cant:{},h:0};
+    const cn=cName(o.cantiereId)||'—',ct=ms.cant[o.cantiereId||'-']=ms.cant[o.cantiereId||'-']||{nome:cn,h:0,gg:{}};
+    ct.h+=num(o.ore);ct.gg[o.data]=(ct.gg[o.data]||0)+num(o.ore);ms.h+=num(o.ore);op.h+=num(o.ore);
+  });
+  return Object.values(ops).sort((x,y)=>x.nome.localeCompare(y.nome));
+}
+const hh=v=>(Math.round(v*100)/100).toString().replace('.',',');
+const mLab=m=>MESI_L[+m.slice(5)-1]+' '+m.slice(0,4);
+function presHtml(da,a,opId,det){
+  const L=presDati(da,a,opId);
+  const head=`<div class="rh"><img src="logo.png" alt="GEI Gruppo Edile Immobiliare"><div class="rr"><h1>Presenze operai</h1><p>Ore per mese e per cantiere</p><p>Periodo ${dt(da)} – ${dt(a)}</p><p class="sm">Emesso il ${dt(today())}</p></div></div>`;
+  const body=L.length?L.map(op=>`<div class="rs"><h3>${esc(op.nome)} <span class="mu">· totale ${hh(op.h)} h</span></h3>
+   ${Object.keys(op.mesi).sort().map(m=>{const ms=op.mesi[m];
+    return `<table><thead><tr><th>${mLab(m)}</th><th class="n">Giorni</th><th class="n">Ore</th></tr></thead><tbody>${Object.values(ms.cant).sort((x,y)=>y.h-x.h).map(ct=>`<tr><td>${esc(ct.nome)}${det?`<em>${Object.keys(ct.gg).sort().map(g=>dts(g)+' '+hh(ct.gg[g])+' h').join(' · ')}</em>`:''}</td><td class="n">${Object.keys(ct.gg).length}</td><td class="n">${hh(ct.h)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Totale ${mLab(m)}</td><td class="n">${new Set(Object.values(ms.cant).flatMap(ct=>Object.keys(ct.gg))).size}</td><td class="n">${hh(ms.h)}</td></tr></tfoot></table>`}).join('')}</div>`).join(''):'<p class="mu">Nessun rapportino nel periodo scelto.</p>';
+  return `<div class="sheet">${head}<div class="rc"><h2>${opId&&L[0]?esc(L[0].nome):'Tutti gli operai'}</h2></div>${body}<div class="rf"><span>${AZ.nome} · P.IVA ${AZ.piva} · ${AZ.sede}</span><span>Presenze da rapportini</span></div></div>`;
+}
+function mPresenze(){
+  const t=today(),y=t.slice(0,4),mm=t.slice(5,7);
+  const last=new Date(+y,+mm,0).getDate();
+  modal('Report presenze operai',`<div class="fields">
+   ${F.s('op','Operaio',[['','Tutti gli operai']].concat(S.operai.slice().sort((p,q)=>p.nome.localeCompare(q.nome)).map(p=>[p.id,p.nome])),'',{cls:'full'})}
+   ${F.t('da','Dal',y+'-'+mm+'-01',{type:'date',req:1})}${F.t('a','Al',y+'-'+mm+'-'+String(last).padStart(2,'0'),{type:'date',req:1})}
+   <div class="f full">${F.c('det','Dettaglio dei giorni lavorati per cantiere',false)}</div>
+  </div><p class="hint">Mostra solo ore e cantieri, senza costi. Il periodo può coprire più mesi: ogni operaio ha una tabella per mese. Con il CSV ottieni un file per Excel.</p>`,
+  d=>{if(d.da>d.a){toast('La data iniziale deve precedere quella finale');return false}
+    setTimeout(()=>apriPresenze(d.da,d.a,d.op,!!d.det),0)},{save:'Crea anteprima',init:f=>{
+    if(!DL)return;const b=document.createElement('button');b.type='button';b.className='btn';b.textContent='Scarica CSV';
+    b.onclick=async()=>{const da=f.querySelector('[name=da]').value,a=f.querySelector('[name=a]').value,op=f.querySelector('[name=op]').value;
+      if(!da||!a||da>a){toast('Controlla le date');return}
+      const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+      const rows=[['Operaio','Mese','Cantiere','Giorni lavorati','Ore']];
+      presDati(da,a,op).forEach(o=>Object.keys(o.mesi).sort().forEach(m=>Object.values(o.mesi[m].cant).forEach(ct=>rows.push([o.nome,mLab(m),ct.nome,Object.keys(ct.gg).length,hh(ct.h)]))));
+      try{await DL.save({filename:'presenze-'+da+'_'+a+'.csv',data:'﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n')})}catch(err){if(err&&err.code!=='declined')toast('Esportazione non riuscita')}};
+    const foot=f.querySelector('.mfoot');(foot||f).insertBefore(b,foot?foot.children[1]||null:null)}});
+}
+function apriPresenze(da,a,op,det){
+  let r=$('#rep');if(!r){r=document.createElement('div');r.id='rep';document.body.appendChild(r)}
+  r.innerHTML=`<div class="rbar"><button class="btn" data-act="rep-close">Chiudi</button><span>Anteprima · A4</span><button class="btn pri" data-act="rep-print">Salva come PDF / Stampa</button></div><div class="rwrap">${presHtml(da,a,op,det)}</div>`;
+  r.hidden=false;document.body.classList.add('rep-on');document.title=`Presenze ${da} ${a}`;
+}
 function chiudiReport(){const r=$('#rep');if(r){r.hidden=true;r.innerHTML=''}document.body.classList.remove('rep-on');document.title='Controllo di gestione'}
 function previsione(c,k){
   if(!c.inizio||!c.fine||c.fine<=c.inizio)return {ok:false,motivo:!c.fine?'Imposta la data di fine lavori per attivare la previsione.':'Controlla le date: la fine lavori deve essere dopo l\'inizio.'};
@@ -828,7 +877,7 @@ function tOre(c,k){
   const list=k.ore.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||'')||(a.operaio||'').localeCompare(b.operaio||''));
   const gm={};list.forEach(o=>{const d=o.data||'';(gm[d]=gm[d]||{d,r:[],h:0,v:0});const g=gm[d];g.r.push(o);g.h+=num(o.ore);g.v+=num(o.ore)*num(o.costoOrario)});
   const giorni=Object.values(gm).sort((a,b)=>b.d.localeCompare(a.d));
-  return `<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="add-ora" data-cid="${c.id}">Nuovo rapportino</button><button class="link" data-act="nav" data-v="impost">Gestisci operai e costo orario</button></div>
+  return `<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="add-ora" data-cid="${c.id}">Nuovo rapportino</button><button class="btn" data-act="presenze">Report presenze operai</button><button class="link" data-act="nav" data-v="impost">Gestisci operai e costo orario</button></div>
   ${Object.keys(by).length?`<div class="chips" style="margin-bottom:12px">${Object.entries(by).map(([n,v])=>`<span class="chip">${esc(n)}: <b>${v.h} h</b> · <b>${eur0(v.v)}</b></span>`).join('')}</div>`:''}
   ${list.length?`<div class="tw"><table><thead><tr><th>Operaio</th><th class="n">Ore</th><th class="n">€/h</th><th class="n">Costo</th><th></th></tr></thead><tbody>
   ${giorni.map(g=>`<tr class="dayh"><td colspan="5"><b>${dt(g.d)}</b><span>${g.r.length} ${g.r.length===1?'operaio':'operai'} · ${g.h} h · ${eur(g.v)}</span><button class="btn sm" data-act="add-ora" data-cid="${c.id}" data-d="${esc(g.d)}">Aggiungi a questo giorno</button></td></tr>`+g.r.map(o=>`<tr><td>${esc(o.operaio)}${o.descrizione?`<span class="sub" style="white-space:normal;max-width:340px">${esc(o.descrizione)}</span>`:''}</td><td class="n">${num(o.ore)}</td><td class="n">${eur(o.costoOrario)}</td><td class="n">${eur(num(o.ore)*num(o.costoOrario))}</td><td><div class="acts"><button class="btn sm" data-act="edit-ora" data-id="${o.id}" data-cid="${c.id}">Modifica</button>${delBtn('ore',o.id)}</div></td></tr>`).join('')).join('')}
@@ -1057,7 +1106,7 @@ function vImpost(){
   </div><p class="hint">I costi fissi comprendono struttura, stipendi e tutto ciò che esce ogni mese a prescindere dai cantieri. La soglia fa segnalare i cantieri con margine previsto più basso.</p><p class="hint">La cassa attuale è la cassa iniziale più gli incassi dei SAL meno i costi pagati registrati da quel giorno in poi. Se la lasci vuota contano tutti i movimenti registrati: usala se parti da zero. Se invece inserisci il saldo del conto di oggi, indica la data di oggi.</p><div class="mfoot"><button class="btn pri" type="submit">Salva</button></div></form>
   <div class="card"><h2>Operai e costo orario</h2>
    ${S.operai.length?`<div class="tw"><table><thead><tr><th>Nome</th><th class="n">€/h</th><th></th></tr></thead><tbody>${S.operai.map(p=>`<tr><td>${esc(p.nome)}</td><td class="n">${eur(p.costoOrario)}</td><td><div class="acts"><button class="btn sm" data-act="edit-op" data-id="${p.id}">Modifica</button>${delBtn('operai',p.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note" style="margin:0 0 10px">Nessun operaio. Aggiungili qui o direttamente dal primo rapportino.</p>`}
-   <div class="mfoot" style="margin-top:12px"><button class="btn pri" data-act="add-op">Nuovo operaio</button></div></div></div>
+   <div class="mfoot" style="margin-top:12px"><button class="btn pri" data-act="add-op">Nuovo operaio</button><button class="btn" data-act="presenze">Report presenze</button></div></div></div>
   <div class="sec"><h2>Fornitori ricordati</h2>${S.regole.length?`<div class="tw"><table><thead><tr><th>Fornitore</th><th>Cantiere</th><th>Categoria</th><th></th></tr></thead><tbody>${S.regole.map(r=>`<tr><td>${esc(r.fornitore)}</td><td>${esc(cName(r.cantiereId))}</td><td>${catOf(r.categoria).n}</td><td><div class="acts">${delBtn('regole',r.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note">Quando assegni una fattura e lasci spuntato "ricorda", il fornitore compare qui e le sue prossime fatture vanno da sole sul cantiere scelto.</p>`}</div>`;
 }
 
@@ -1089,6 +1138,7 @@ document.addEventListener('click',async e=>{
    case 'tab':ui.tab=el.dataset.tab;ui.periodoOpen=false;saveUi();render();break;
    case 'new-c':mCantiere();break;
    case 'report':mReport(id);break;
+   case 'presenze':mPresenze();break;
    case 'rep-close':chiudiReport();break;
    case 'rep-print':window.print();break;
    case 'new-c-cli':mCantiere('',{clienteId:id,committente:cliName(id)});break;
