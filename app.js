@@ -33,6 +33,7 @@ const ICON={
  cantieri:'<path d="M2 18h20M4 18a8 8 0 0 1 16 0M12 6v4"/>',
  fatture:'<path d="M6 3h9l4 4v14H6zM15 3v4h4M9 12h6M9 16h6"/>',
  cassa:'<path d="M3 7h18v12H3zM3 7l2-3h14l2 3M16 13h2"/>',
+ operai:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 0 0-6M18 20a5 5 0 0 0-3-4.6"/>',
  impost:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
  img:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/>',
  clienti:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
@@ -738,11 +739,11 @@ function presHtml(da,a,opId,det){
     return `<table><thead><tr><th>${mLab(m)}</th><th class="n">Giorni</th><th class="n">Ore</th></tr></thead><tbody>${Object.values(ms.cant).sort((x,y)=>y.h-x.h).map(ct=>`<tr><td>${esc(ct.nome)}${det?`<em>${Object.keys(ct.gg).sort().map(g=>dts(g)+' '+hh(ct.gg[g])+' h').join(' · ')}</em>`:''}</td><td class="n">${Object.keys(ct.gg).length}</td><td class="n">${hh(ct.h)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Totale ${mLab(m)}</td><td class="n">${new Set(Object.values(ms.cant).flatMap(ct=>Object.keys(ct.gg))).size}</td><td class="n">${hh(ms.h)}</td></tr></tfoot></table>`}).join('')}</div>`).join(''):'<p class="mu">Nessun rapportino nel periodo scelto.</p>';
   return `<div class="sheet">${head}<div class="rc"><h2>${opId&&L[0]?esc(L[0].nome):'Tutti gli operai'}</h2></div>${body}<div class="rf"><span>${AZ.nome} · P.IVA ${AZ.piva} · ${AZ.sede}</span><span>Presenze da rapportini</span></div></div>`;
 }
-function mPresenze(){
+function mPresenze(opId){
   const t=today(),y=t.slice(0,4),mm=t.slice(5,7);
   const last=new Date(+y,+mm,0).getDate();
   modal('Report presenze operai',`<div class="fields">
-   ${F.s('op','Operaio',[['','Tutti gli operai']].concat(S.operai.slice().sort((p,q)=>p.nome.localeCompare(q.nome)).map(p=>[p.id,p.nome])),'',{cls:'full'})}
+   ${F.s('op','Operaio',[['','Tutti gli operai']].concat(S.operai.slice().sort((p,q)=>p.nome.localeCompare(q.nome)).map(p=>[p.id,p.nome])),opId||'',{cls:'full'})}
    ${F.t('da','Dal',y+'-'+mm+'-01',{type:'date',req:1})}${F.t('a','Al',y+'-'+mm+'-'+String(last).padStart(2,'0'),{type:'date',req:1})}
    <div class="f full">${F.c('det','Dettaglio dei giorni lavorati per cantiere',false)}</div>
   </div><p class="hint">Mostra solo ore e cantieri, senza costi. Il periodo può coprire più mesi: ogni operaio ha una tabella per mese. Con il CSV ottieni un file per Excel.</p>`,
@@ -877,7 +878,7 @@ function tOre(c,k){
   const list=k.ore.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||'')||(a.operaio||'').localeCompare(b.operaio||''));
   const gm={};list.forEach(o=>{const d=o.data||'';(gm[d]=gm[d]||{d,r:[],h:0,v:0});const g=gm[d];g.r.push(o);g.h+=num(o.ore);g.v+=num(o.ore)*num(o.costoOrario)});
   const giorni=Object.values(gm).sort((a,b)=>b.d.localeCompare(a.d));
-  return `<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="add-ora" data-cid="${c.id}">Nuovo rapportino</button><button class="btn" data-act="presenze">Report presenze operai</button><button class="link" data-act="nav" data-v="impost">Gestisci operai e costo orario</button></div>
+  return `<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="add-ora" data-cid="${c.id}">Nuovo rapportino</button><button class="link" data-act="nav" data-v="operai">Operai e presenze</button></div>
   ${Object.keys(by).length?`<div class="chips" style="margin-bottom:12px">${Object.entries(by).map(([n,v])=>`<span class="chip">${esc(n)}: <b>${v.h} h</b> · <b>${eur0(v.v)}</b></span>`).join('')}</div>`:''}
   ${list.length?`<div class="tw"><table><thead><tr><th>Operaio</th><th class="n">Ore</th><th class="n">€/h</th><th class="n">Costo</th><th></th></tr></thead><tbody>
   ${giorni.map(g=>`<tr class="dayh"><td colspan="5"><b>${dt(g.d)}</b><span>${g.r.length} ${g.r.length===1?'operaio':'operai'} · ${g.h} h · ${eur(g.v)}</span><button class="btn sm" data-act="add-ora" data-cid="${c.id}" data-d="${esc(g.d)}">Aggiungi a questo giorno</button></td></tr>`+g.r.map(o=>`<tr><td>${esc(o.operaio)}${o.descrizione?`<span class="sub" style="white-space:normal;max-width:340px">${esc(o.descrizione)}</span>`:''}</td><td class="n">${num(o.ore)}</td><td class="n">${eur(o.costoOrario)}</td><td class="n">${eur(num(o.ore)*num(o.costoOrario))}</td><td><div class="acts"><button class="btn sm" data-act="edit-ora" data-id="${o.id}" data-cid="${c.id}">Modifica</button>${delBtn('ore',o.id)}</div></td></tr>`).join('')).join('')}
@@ -1104,21 +1105,32 @@ function vImpost(){
    ${F.t('cassaData','Cassa iniziale riferita al giorno',k.cassaData,{type:'date',cls:'full'})}
    ${F.t('piva','Partita IVA di GEI (per ignorare le fatture emesse)',S.config.piva||'',{cls:'full',inputmode:'numeric'})}
   </div><p class="hint">I costi fissi comprendono struttura, stipendi e tutto ciò che esce ogni mese a prescindere dai cantieri. La soglia fa segnalare i cantieri con margine previsto più basso.</p><p class="hint">La cassa attuale è la cassa iniziale più gli incassi dei SAL meno i costi pagati registrati da quel giorno in poi. Se la lasci vuota contano tutti i movimenti registrati: usala se parti da zero. Se invece inserisci il saldo del conto di oggi, indica la data di oggi.</p><div class="mfoot"><button class="btn pri" type="submit">Salva</button></div></form>
-  <div class="card"><h2>Operai e costo orario</h2>
-   ${S.operai.length?`<div class="tw"><table><thead><tr><th>Nome</th><th class="n">€/h</th><th></th></tr></thead><tbody>${S.operai.map(p=>`<tr><td>${esc(p.nome)}</td><td class="n">${eur(p.costoOrario)}</td><td><div class="acts"><button class="btn sm" data-act="edit-op" data-id="${p.id}">Modifica</button>${delBtn('operai',p.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note" style="margin:0 0 10px">Nessun operaio. Aggiungili qui o direttamente dal primo rapportino.</p>`}
-   <div class="mfoot" style="margin-top:12px"><button class="btn pri" data-act="add-op">Nuovo operaio</button><button class="btn" data-act="presenze">Report presenze</button></div></div></div>
+  </div>
   <div class="sec"><h2>Fornitori ricordati</h2>${S.regole.length?`<div class="tw"><table><thead><tr><th>Fornitore</th><th>Cantiere</th><th>Categoria</th><th></th></tr></thead><tbody>${S.regole.map(r=>`<tr><td>${esc(r.fornitore)}</td><td>${esc(cName(r.cantiereId))}</td><td>${catOf(r.categoria).n}</td><td><div class="acts">${delBtn('regole',r.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note">Quando assegni una fattura e lasci spuntato "ricorda", il fornitore compare qui e le sue prossime fatture vanno da sole sul cantiere scelto.</p>`}</div>`;
 }
 
 /* ---------- render ---------- */
+
+function vOperai(){
+  const t=today(),m0=t.slice(0,7)+'-01',ms=mLab(t.slice(0,7));
+  const rowsD=S.operai.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(p=>{
+    const mine=S.ore.filter(o=>o.operaioId===p.id||(!o.operaioId&&norm(o.operaio)===norm(p.nome)));
+    const mese=mine.filter(o=>(o.data||'')>=m0&&(o.data||'')<=t.slice(0,7)+'-31');
+    const cant=new Set(mese.map(o=>o.cantiereId));
+    return {p,h:sum(mese,o=>num(o.ore)),tot:sum(mine,o=>num(o.ore)),cant:[...cant].map(cName).join(', ')};
+  });
+  return `<div class="page-h"><div><h1>Operai</h1><p>Anagrafica, costo orario e presenze.</p></div><div class="row"><button class="btn" data-act="presenze">Report presenze</button><button class="btn pri" data-act="add-op">Nuovo operaio</button></div></div>
+  <div class="card">${rowsD.length?`<div class="tw"><table><thead><tr><th>Nome</th><th class="n">€/h</th><th class="n">Ore ${ms}</th><th>Cantieri ${ms}</th><th class="n">Ore totali</th><th></th></tr></thead><tbody>${rowsD.map(r=>`<tr><td>${esc(r.p.nome)}</td><td class="n">${eur(r.p.costoOrario)}</td><td class="n">${hh(r.h)}</td><td>${esc(r.cant)||'—'}</td><td class="n">${hh(r.tot)}</td><td><div class="acts"><button class="btn sm" data-act="presenze" data-id="${r.p.id}">Presenze</button><button class="btn sm" data-act="edit-op" data-id="${r.p.id}">Modifica</button>${delBtn('operai',r.p.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note" style="margin:0">Nessun operaio. Aggiungilo con "Nuovo operaio" o direttamente dal primo rapportino.</p>`}
+  <p class="hint">Le ore vengono dai rapportini dei cantieri. "Presenze" crea il report mensile dell'operaio con cantieri e ore, da salvare in PDF o scaricare in CSV.</p></div>`;
+}
 function render(){
   const main=$('#main');if(!main)return;
-  const nav=[['impresa','Impresa'],['cantieri','Cantieri'],['clienti','Clienti'],['fatture','Fatture'],['cassa','Cassa'],['impost','Opzioni']];
+  const nav=[['impresa','Impresa'],['cantieri','Cantieri'],['clienti','Clienti'],['operai','Operai'],['fatture','Fatture'],['cassa','Cassa'],['impost','Opzioni']];
   const act=ui.view==='cantiere'?'cantieri':ui.view;const nda=daAssegnare().length;
   $('#rail').innerHTML=nav.map(([v,l])=>`<button data-act="nav" data-v="${v}" ${act===v?'aria-current="page"':''}>${svg(ICON[v])}<span>${l}</span>${v==='fatture'&&nda?`<span class="badge">${nda}</span>`:''}</button>`).join('');
   $('#sync').textContent=SYNC;
   if(!loaded){main.innerHTML=`<div class="empty"><h3>Carico i dati</h3><span>Un attimo.</span></div>`;return}
-  const v={impresa:vImpresa,cantieri:vCantieri,cantiere:vCantiere,clienti:vClienti,fatture:vFatture,cassa:vCassa,impost:vImpost}[ui.view]||vImpresa;
+  const v={impresa:vImpresa,cantieri:vCantieri,cantiere:vCantiere,clienti:vClienti,operai:vOperai,fatture:vFatture,cassa:vCassa,impost:vImpost}[ui.view]||vImpresa;
   const keep=window.scrollY;
   main.innerHTML=v();
   window.scrollTo(0,keep);
@@ -1138,7 +1150,7 @@ document.addEventListener('click',async e=>{
    case 'tab':ui.tab=el.dataset.tab;ui.periodoOpen=false;saveUi();render();break;
    case 'new-c':mCantiere();break;
    case 'report':mReport(id);break;
-   case 'presenze':mPresenze();break;
+   case 'presenze':mPresenze(id);break;
    case 'rep-close':chiudiReport();break;
    case 'rep-print':window.print();break;
    case 'new-c-cli':mCantiere('',{clienteId:id,committente:cliName(id)});break;
