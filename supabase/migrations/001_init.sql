@@ -2,7 +2,7 @@
 -- Da incollare ed eseguire nel SQL Editor di Supabase (una volta sola).
 
 create table if not exists public.docs (
-  col         text        not null,              -- cantieri, costi, sal, sub, ore, operai, regole, scad, clienti, preventivi, config
+  col         text        not null,              -- cantieri, costi, sal, sub, ore, operai, regole, scad, clienti, preventivi, lav, config
   id          text        not null,
   data        jsonb       not null default '{}'::jsonb,
   updated_at  timestamptz not null default now(),

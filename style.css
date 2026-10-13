@@ -280,3 +280,5 @@ details.alt summary{cursor:pointer;color:var(--ink-2);font-size:13px}
   .rbar{display:none!important}.rwrap{padding:0}
   .sheet{width:auto;box-shadow:none;margin:0;padding:12mm 13mm}
 }
+
+.rbar2{display:inline-block;vertical-align:middle;width:90px;height:8px;border-radius:5px;background:var(--surface-2);overflow:hidden;margin-right:8px;border:1px solid var(--line)}.rbar2 i{display:block;height:100%;background:var(--accent,#0e8a8a)}
