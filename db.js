@@ -7,11 +7,24 @@
 
   const subs = {};            // col -> Set di funzioni refetch
   let channel = null;
+  const timers = {};
 
-  async function fetchCol(col){
-    const { data, error } = await sb.from('docs').select('id,data').eq('col', col);
-    if (error) throw error;
-    return data || [];
+  // Le richieste fatte nello stesso istante (le 11 raccolte all'avvio) partono come una sola query.
+  let batch = null;
+  function fetchCol(col){
+    if (!batch) {
+      const b = batch = { cols: new Set(), p: null };
+      b.p = new Promise(res => setTimeout(res, 15)).then(async () => {
+        if (batch === b) batch = null;
+        const { data, error } = await sb.from('docs').select('col,id,data').in('col', [...b.cols]);
+        if (error) throw error;
+        const out = {}; b.cols.forEach(c => out[c] = []);
+        (data || []).forEach(r => out[r.col].push({ id: r.id, data: r.data }));
+        return out;
+      });
+    }
+    batch.cols.add(col);
+    return batch.p.then(out => out[col] || []);
   }
   function snapOf(rows){
     return { docs: rows.map(r => ({ id: r.id, data: () => r.data })) };
@@ -20,7 +33,8 @@
     if (channel) return;
     channel = sb.channel('docs-all').on('postgres_changes', { event: '*', schema: 'public', table: 'docs' }, p => {
       const col = (p.new && p.new.col) || (p.old && p.old.col);
-      (subs[col] || []).forEach(f => f());
+      clearTimeout(timers[col]);
+      timers[col] = setTimeout(() => (subs[col] || []).forEach(f => f()), 200);   // raggruppa raffiche di modifiche
     }).subscribe();
   }
   function watch(col, onRows, onErr){
@@ -29,7 +43,7 @@
     ensureChannel();
     run();
     // rete di sicurezza se il realtime è spento: riallinea ogni 60 s
-    const t = setInterval(run, 60000);
+    const t = setInterval(run, 90000);
     return () => { clearInterval(t); subs[col].delete(run); };
   }
   async function setDoc(col, id, obj){
