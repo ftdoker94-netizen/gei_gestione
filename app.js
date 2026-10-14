@@ -859,7 +859,7 @@ function mRataLink(cid,rid){
 function mRate(cid){
   const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
   const r0=(c.rate||[]).slice();while(r0.length<8)r0.push({id:'',nome:'',pct:''});
-  modal('Piano dei SAL del contratto',`<div class="inl">${r0.map((r,i)=>`<div class="inr" style="grid-template-columns:1fr 90px"><input name="n${i}" value="${esc(r.nome)}" placeholder="${i===0?'es. Alla firma del contratto':'Rata '+(i+1)}" aria-label="Rata ${i+1}"><input type="number" name="p${i}" value="${r.pct}" step="0.1" inputmode="decimal" placeholder="%" aria-label="Percentuale"></div>`).join('')}</div><p class="hint">Scrivi le rate del contratto con la loro percentuale sul corrispettivo (devono sommare 100%). Poi, in ogni lavorazione, scegli a quale rata appartiene: la rata si sblocca quando tutte le sue lavorazioni sono al 100%. Una rata senza lavorazioni (es. la firma) la segni tu come maturata.</p>`,
+  modal('Piano dei SAL del contratto',`<div class="inl">${r0.map((r,i)=>`<div class="inr" style="grid-template-columns:1fr 90px"><input name="n${i}" value="${esc(r.nome)}" placeholder="${i===0?'es. Alla firma del contratto':'Rata '+(i+1)}" aria-label="Rata ${i+1}"><input type="number" name="p${i}" value="${r.pct}" step="any" inputmode="decimal" placeholder="%" aria-label="Percentuale"></div>`).join('')}</div><p class="hint">Scrivi le rate del contratto con la loro percentuale sul corrispettivo (devono sommare 100%). Poi, in ogni lavorazione, scegli a quale rata appartiene: la rata si sblocca quando tutte le sue lavorazioni sono al 100%. Una rata senza lavorazioni (es. la firma) la segni tu come maturata.</p>`,
   d=>{
     const list=[];
     for(let i=0;i<8;i++){const n=(d['n'+i]||'').trim();if(!n)continue;const o=r0[i]||{};list.push({id:o.id||uid(),nome:n,pct:num(d['p'+i]),salId:o.salId||'',manuale:o.manuale||''})}
@@ -883,13 +883,17 @@ function tLav(c,k){
 }
 function mLavVoce(id,cid){
   const l=S.lav.find(y=>y.id===id)||{};
-  modal(id?'Modifica lavorazione':'Nuova lavorazione',`<div class="fields">${F.t('nome','Lavorazione',l.nome,{req:1,cls:'full',ph:'es. Demolizioni'})}${F.m('importo','Importo / peso (€)',l.importo,{req:1})}${F.t('ordine','Ordine',l.ordine!=null?l.ordine:S.lav.filter(y=>y.cantiereId===cid).length+1,{type:'number'})}${((S.cantieri.find(y=>y.id===cid)||{}).rate||[]).length?F.s('rataId','Appartiene alla rata',[['','— nessuna —']].concat(S.cantieri.find(y=>y.id===cid).rate.map(r=>[r.id,r.nome])),l.rataId||'',{cls:'full'}):''}</div><p class="hint">L'importo è il valore della lavorazione nel contratto (il peso sul totale). Se la somma non coincide col contratto, i pesi vengono riportati in proporzione.</p>`,
-  d=>put('lav',{storico:[],...l,cantiereId:cid,nome:d.nome.trim(),importo:num(d.importo),ordine:num(d.ordine),rataId:d.rataId!=null?d.rataId:(l.rataId||'')}));
+  modal(id?'Modifica lavorazione':'Nuova lavorazione',`<div class="fields">${F.t('nome','Lavorazione',l.nome,{req:1,cls:'full',ph:'es. Demolizioni'})}${F.m('importo','Importo / peso (€)',l.importo,{req:1})}${F.t('ordine','Ordine',l.ordine!=null?l.ordine:S.lav.filter(y=>y.cantiereId===cid).length+1,{type:'number'})}${id?F.t('pct','Avanzamento a oggi (%)',pctAt(l,today()),{type:'number',step:'any',inputmode:'decimal',cls:'full'}):''}${((S.cantieri.find(y=>y.id===cid)||{}).rate||[]).length?F.s('rataId','Appartiene alla rata',[['','— nessuna —']].concat(S.cantieri.find(y=>y.id===cid).rate.map(r=>[r.id,r.nome])),l.rataId||'',{cls:'full'}):''}</div><p class="hint">L'importo è il valore della lavorazione nel contratto (il peso sul totale). Se la somma non coincide col contratto, i pesi vengono riportati in proporzione.</p>`,
+  d=>{
+    let st=l.storico||[];
+    if(id&&d.pct!==''&&d.pct!=null){const p=Math.max(0,Math.min(100,num(d.pct)));if(p!==pctAt(l,today()))st=st.filter(e=>e.d!==today()).concat([{d:today(),p}]).sort((a,b)=>a.d.localeCompare(b.d))}
+    return put('lav',{...l,storico:st,cantiereId:cid,nome:d.nome.trim(),importo:num(d.importo),ordine:num(d.ordine),rataId:d.rataId!=null?d.rataId:(l.rataId||'')});
+  });
 }
 function mLavUpd(cid){
   const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
   const voci=lavDi(c);if(!voci.length){toast('Aggiungi prima le lavorazioni');return}
-  const riga=l=>`<div class="inr" style="grid-template-columns:1fr 90px"><span>${esc(l.nome)}</span><input type="number" name="p_${l.id}" min="0" max="100" step="1" inputmode="decimal" value="${pctAt(l,today())}" aria-label="% ${esc(l.nome)}"></div>`;
+  const riga=l=>`<div class="inr" style="grid-template-columns:1fr 90px"><span>${esc(l.nome)}</span><input type="number" name="p_${l.id}" min="0" max="100" step="any" inputmode="decimal" value="${pctAt(l,today())}" aria-label="% ${esc(l.nome)}"></div>`;
   modal('Aggiorna avanzamento',`<div class="fields">${F.t('data','Data',today(),{type:'date',req:1,cls:'full'})}</div><div class="inl">${voci.map(riga).join('')}</div><p class="hint">Scrivi la percentuale raggiunta da ogni lavorazione a quella data (0–100). Le voci che non cambi restano come sono.</p>`,
   async d=>{
     const dd=d.data;
