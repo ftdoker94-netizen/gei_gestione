@@ -98,7 +98,7 @@ let tt=0;function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;cl
 /* ---------- calcoli ---------- */
 const incs=s=>Array.isArray(s.incassi)?s.incassi:(num(s.incassato)>0?[{d:s.dataIncasso||s.data||"",v:num(s.incassato)}]:[]);
 const incTot=s=>sum(incs(s),x=>x.v);
-function calc(c){
+function calc(c,dd){
   const costi=S.costi.filter(x=>x.cantiereId===c.id);
   const subs=S.sub.filter(x=>x.cantiereId===c.id);
   const subNames=new Set(subs.map(s=>norm(s.nome)));
@@ -131,10 +131,11 @@ function calc(c){
   const ritenute=maturato*rit;
   const daIncassare=Math.max(0,sum(sal.filter(s=>s.fatturato),s=>num(s.importo)*(1-rit))-incassato);
   const avanz=contratto?maturato/contratto:0;
+  const LL=lavStato(c,dd||today()),hasLav=LL.voci.length>0,av=hasLav?LL.avanz:avanz,matAv=hasLav?LL.mat:maturato;
   const margine=contratto-eacT;
-  const proiezione=avanz>=0.05?consT/avanz:null;
+  const proiezione=av>=0.05?consT/av:null;
   return {costi,subRows,cons,imp,bud,eac,n,contratto,consT,impT,budT,eacT,sal,maturato,fatturato,incassato,ritenute,
-    daFatturare:maturato-fatturato,daIncassare,avanz,margine,marginePct:contratto?margine/contratto*100:0,
+    daFatturare:maturato-fatturato,daIncassare,avanz,av,hasLav,matAv,margine,marginePct:contratto?margine/contratto*100:0,
     maturatoMargine:maturato-consT,proiezione,oreTot,ore,rit,haBudget:budT>0};
 }
 function periodo(c,da,a){
@@ -606,7 +607,7 @@ function vImpresa(){
   ${impresaGrafici()}
   <div class="sec"><h2>Cantieri</h2><div class="tw"><table><thead><tr><th>Cantiere</th><th>Stato</th><th class="n">Contratto</th><th>Avanzamento</th><th class="n">Costi sostenuti</th><th class="n">Margine previsto</th><th class="n">Da incassare</th></tr></thead><tbody>
   ${rows.map(({c,k:kk})=>`<tr><td><button class="link" data-act="open-c" data-id="${c.id}">${esc(c.nome)}</button><span class="sub">${esc(c.indirizzo||'')}</span></td><td>${statoPill(c.stato)}</td><td class="n">${eur0(kk.contratto)}</td>
-  <td style="min-width:130px"><div class="meter" style="--c:var(--s1)"><span style="width:${Math.min(100,kk.avanz*100)}%"></span></div><small>${pct(kk.avanz*100)}</small></td>
+  <td style="min-width:130px"><div class="meter" style="--c:var(--s1)"><span style="width:${Math.min(100,kk.av*100)}%"></span></div><small>${pct(kk.av*100)}</small></td>
   <td class="n">${eur0(kk.consT)}</td><td class="n">${kk.haBudget?`${eur0(kk.margine)} <span class="sub">${pct(kk.marginePct)}</span>`:'<span class="sub">budget mancante</span>'}</td><td class="n">${eur0(kk.daIncassare)}</td></tr>`).join('')}
   </tbody></table></div></div>
   <div class="sec"><h2>Da fare</h2><div class="card"><div class="todo">${todo.length?todo.map(i=>`<div class="it">${pill(i.k==='bad'?'Urgente':i.k==='warn'?'Attenzione':i.k==='good'?'SAL':'Info',i.k)}<span class="t">${esc(i.t)}</span>${i.cid?`<button class="btn sm" data-act="open-c" data-id="${i.cid}" data-tab="${i.tab}">Apri</button>`:`<button class="btn sm" data-act="nav" data-v="${i.go}">${i.lab}</button>`}</div>`).join(''):`<div class="it"><span class="t">Niente da segnalare.</span></div>`}</div></div></div>`;
@@ -620,8 +621,8 @@ function vCantieri(){
   <div class="cantieri-grid">${S.cantieri.map(c=>{const k=calc(c);return `<button class="card cc" data-act="open-c" data-id="${c.id}" style="all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);min-width:0">
    <div class="row" style="justify-content:space-between"><h3 style="font:600 22px/1.1 var(--font-d);margin:0">${esc(c.nome)}</h3>${statoPill(c.stato)}</div>
    <div class="meta" style="color:var(--ink-2);font-size:13px">${esc(c.indirizzo||'')}${c.committente?' · '+esc(c.committente):''}</div>
-   <div class="meter" style="--c:var(--s1)"><span style="width:${Math.min(100,k.avanz*100)}%"></span></div>
-   <div class="row" style="justify-content:space-between;font-size:14px"><span>Avanzamento <b>${pct(k.avanz*100)}</b></span><span>Contratto <b>${eur0(k.contratto)}</b></span></div>
+   <div class="meter" style="--c:var(--s1)"><span style="width:${Math.min(100,k.av*100)}%"></span></div>
+   <div class="row" style="justify-content:space-between;font-size:14px"><span>Avanzamento <b>${pct(k.av*100)}</b></span><span>Contratto <b>${eur0(k.contratto)}</b></span></div>
    <div class="row" style="justify-content:space-between;font-size:14px"><span>Costi <b>${eur0(k.consT)}</b></span><span>Margine <b>${k.haBudget?pct(k.marginePct):'—'}</b></span></div></button>`}).join('')}</div>`;
 }
 
@@ -630,7 +631,7 @@ function tSalLav(c,k){
   const rtS=rateStato(c),rmap={};rtS.forEach(y=>{if(y.sal)rmap[y.sal.id]=1});
   const fuori=(c.rate||[]).length?k.sal.filter(y=>!rmap[y.id]):[];
   const avviso=fuori.length?`<div class="banner" style="border-left-color:var(--bad)">${pill('Controlla','bad')}<span><b>${fuori.length===1?'1 SAL non corrisponde':fuori.length+' SAL non corrispondono'} a nessuna rata del piano</b> (${fuori.map(y=>'N° '+y.n+' '+eur0(y.importo)).join(', ')}). Se sono doppioni eliminali nella tabella «SAL emessi» qui sotto.</span></div>`:'';
-  const av=hasL?L.avanz:k.avanz;
+  const av=k.av;
   const kp=`<div class="kpis k6 sm">${kpi('Avanzamento lavori',pct(av*100),hasL?'dalle lavorazioni':'dai SAL emessi','--s1')}${kpi('SAL emessi',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s2')}${kpi('Fatturato',eur0(k.fatturato),'','--s3')}${kpi('Incassato',eur0(k.incassato),'','--s4')}${kpi('Da incassare',eur0(k.daIncassare),'al netto delle ritenute','--s5')}${kpi('Ritenute',eur0(k.ritenute),pct(c.ritenutaPct||0)+' sul maturato','--s1')}</div>`;
   return avviso+bannerSal(c,k)+kp+tLav(c,k,true)+tSal(c,k,true);
 }
@@ -658,7 +659,7 @@ function repDati(c,da,a){
     S.costi=S.costi.filter(x=>!x.data||x.data<=a);
     S.ore=S.ore.filter(x=>!x.data||x.data<=a);
     S.sal=S.sal.filter(x=>!x.data||x.data<=a).map(s=>({...s,incassi:incs(s).filter(i=>!i.d||i.d<=a)}));
-    k=calc(c);
+    k=calc(c,a);
   }finally{S.costi=bak.costi;S.ore=bak.ore;S.sal=bak.sal}
   const inP=d=>d&&d>=da&&d<=a;
   const costiP=S.costi.filter(x=>x.cantiereId===c.id&&inP(x.data)&&x.stato!=='ordine').sort((p,q)=>p.data.localeCompare(q.data));
@@ -684,7 +685,7 @@ const lvR=(()=>{const L=lavStato(c,a);if(!L.voci.length)return '';return `<div c
   let body='';
   if(!int){
     body=`<div class="rkk">${kp('Contratto',eur0(k.contratto))}${kp('Lavori maturati',eur0(k.maturato),pct(k.avanz*100)+' del contratto')}${kp('Fatturato',eur0(k.fatturato))}${kp('Incassato',eur0(k.incassato))}${kp('Da incassare',eur0(k.daIncassare),k.ritenute?'al netto ritenute di garanzia':'')}</div>
-    <div class="rs"><h3>Avanzamento</h3>${barR('Lavori eseguiti (SAL)',k.avanz,1,pct(k.avanz*100),'#8a6a2f')}${tempo!=null?barR('Tempo trascorso',tempo,1,pct(tempo*100),'#9aa5ae'):''}</div>
+    <div class="rs"><h3>Avanzamento</h3>${barR('Lavori eseguiti',k.av,1,pct(k.av*100),'#8a6a2f')}${tempo!=null?barR('Tempo trascorso',tempo,1,pct(tempo*100),'#9aa5ae'):''}</div>
     ${lvR}<div class="rs"><h3>Stati di avanzamento</h3>${salTab}</div><div class="rs">${mov}</div>
     ${k.ritenute?`<p class="mu">Ritenuta di garanzia ${pct(c.ritenutaPct||0)} sul maturato: ${eur(k.ritenute)}.</p>`:''}`;
   }else{
@@ -697,10 +698,10 @@ const lvR=(()=>{const L=lavStato(c,a);if(!L.voci.length)return '';return `<div c
     const opers={};d.oreP.forEach(o=>{const n=o.operaio||'—';opers[n]=opers[n]||{h:0,v:0};opers[n].h+=num(o.ore);opers[n].v+=num(o.ore)*num(o.costoOrario)});
     const gg={};d.oreP.forEach(o=>{(gg[o.data]=gg[o.data]||[]).push(o)});
     body=`<div class="rkk">${kp('Contratto',eur0(k.contratto))}${kp('Maturato',eur0(k.maturato),pct(k.avanz*100))}${kp('Costi sostenuti',eur0(k.consT),k.impT?'+ '+eur0(k.impT)+' impegnati':'')}${kp('Margine maturato',eur0(k.maturatoMargine),'SAL − costi')}${kp('Margine previsto',k.haBudget?eur0(k.margine):'—',k.haBudget?pct(k.marginePct):'budget non impostato')}</div>
-    <div class="rs"><h3>Tempo, avanzamento e spesa</h3>${tempo!=null?barR('Tempo trascorso',tempo,1,pct(tempo*100),'#9aa5ae'):''}${barR('Avanzamento SAL',k.avanz,1,pct(k.avanz*100),'#8a6a2f')}${spesaB!=null?barR('Budget costi usato',spesaB,1,pct(spesaB*100),spesaB>k.avanz+.1?'#b42318':'#1f3b4d'):''}</div>
+    <div class="rs"><h3>Tempo, avanzamento e spesa</h3>${tempo!=null?barR('Tempo trascorso',tempo,1,pct(tempo*100),'#9aa5ae'):''}${barR('Avanzamento lavori',k.av,1,pct(k.av*100),'#8a6a2f')}${spesaB!=null?barR('Budget costi usato',spesaB,1,pct(spesaB*100),spesaB>k.avanz+.1?'#b42318':'#1f3b4d'):''}</div>
     ${al.length?`<div class="rs al"><h3>Segnalazioni</h3><ul>${al.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:''}
     <div class="rs"><h3>Costi per categoria (cumulati)</h3><table><thead><tr><th>Categoria</th><th class="n">Speso</th><th class="n">Impegnato</th><th class="n">Budget</th><th class="n">Residuo budget</th></tr></thead><tbody>${catRows||'<tr><td colspan="5" class="mu">Nessun costo registrato.</td></tr>'}</tbody><tfoot><tr><td>Totale</td><td class="n">${eur0(k.consT)}</td><td class="n">${eur0(k.impT)}</td><td class="n">${k.budT?eur0(k.budT):'—'}</td><td class="n">${k.budT?eur0(k.budT-k.consT-k.impT):'—'}</td></tr></tfoot></table></div>
-    ${pr.ok?`<div class="rs"><h3>Previsione di chiusura <small>attendibilità ${pr.att[0]}</small></h3><table><tbody><tr><td>Costo finale con la media nel tempo</td><td class="n">${eur0(pr.prevT)}</td><td class="n">margine ${eur0(pr.margT)}</td></tr>${pr.perAv!=null?`<tr><td>Costo finale in base all'avanzamento SAL</td><td class="n">${eur0(pr.perAv)}</td><td class="n">margine ${eur0(pr.margAv)}</td></tr>`:''}</tbody></table></div>`:''}
+    ${pr.ok?`<div class="rs"><h3>Previsione di chiusura <small>attendibilità ${pr.att[0]}</small></h3><table><tbody><tr><td>Costo finale con la media nel tempo</td><td class="n">${eur0(pr.prevT)}</td><td class="n">margine ${eur0(pr.margT)}</td></tr>${pr.perAv!=null?`<tr><td>Costo finale in base all'avanzamento lavori</td><td class="n">${eur0(pr.perAv)}</td><td class="n">margine ${eur0(pr.margAv)}</td></tr>`:''}</tbody></table></div>`:''}
     ${lvR}<div class="rs"><h3>Stati di avanzamento e incassi</h3>${salTab}</div><div class="rs">${mov}</div>
     ${k.subRows.length?`<div class="rs"><h3>Subappalti</h3><table><thead><tr><th>Ditta</th><th>Lavorazione</th><th class="n">Contratto</th><th class="n">Maturato</th><th class="n">Pagato</th><th class="n">Da pagare</th></tr></thead><tbody>${k.subRows.map(s=>`<tr><td>${esc(s.nome)}</td><td>${esc(s.lavorazione||'')}</td><td class="n">${eur0(s.importo)}</td><td class="n">${eur0(s.acc)}</td><td class="n">${eur0(s.pagato)}</td><td class="n">${eur0(s.daPagare)}</td></tr>`).join('')}</tbody></table></div>`:''}
     <div class="rs"><h3>Manodopera nel periodo</h3>${Object.keys(opers).length?`<table><thead><tr><th>Operaio</th><th class="n">Ore</th><th class="n">Costo</th></tr></thead><tbody>${Object.entries(opers).map(([n,v])=>`<tr><td>${esc(n)}</td><td class="n">${v.h}</td><td class="n">${eur(v.v)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Totale</td><td class="n">${sum(d.oreP,o=>o.ore)}</td><td class="n">${eur(sum(d.oreP,o=>num(o.ore)*num(o.costoOrario)))}</td></tr></tfoot></table>`:'<p class="mu">Nessun rapportino nel periodo.</p>'}
@@ -985,7 +986,7 @@ function previsione(c,k){
   const el=Math.max(1,Math.min(tot,dd(c.inizio,t)+1)),f=el/tot,ritardo=t>c.fine;
   const cat={};CK.forEach(x=>{cat[x]={cons:k.cons[x],imp:k.imp[x],bud:k.bud[x],prev:Math.max(k.cons[x]+k.imp[x],k.cons[x]*(ritardo?1:tot/el))}});
   const prevT=CK.reduce((a,x)=>a+cat[x].prev,0);
-  const perAv=k.avanz>=0.05?Math.max(k.consT+k.impT,k.consT/k.avanz):null;
+  const perAv=k.av>=0.05?Math.max(k.consT+k.impT,k.consT/k.av):null;
   const att=f<0.15?['bassa','warn']:f<0.4?['media','info']:['buona','good'];
   const resto=Math.max(0,dd(t,c.fine));
   return {ok:true,tot,el,f,ritardo,cat,prevT,perAv,att,resto,giorno:k.consT/el,mese:k.consT/el*30,
@@ -1005,7 +1006,7 @@ function boxPrevisione(c,k){
    <tfoot><tr><td>Totale</td><td class="n">${eur0(k.consT)}</td><td class="n">${eur0(p.prevT)}</td><td class="n">${k.budT?eur0(k.budT):'—'}</td><td></td></tr></tfoot></table></div>
    <dl class="dl" style="margin-top:14px">
     <dt>Margine finale con la media nel tempo</dt><dd>${marg(p.margT)}</dd>
-    <dt>Margine finale in base all'avanzamento SAL (${pct(k.avanz*100)})</dt><dd>${p.perAv==null?'<span class="sub">serve almeno il 5% di avanzamento</span>':`${marg(p.margAv)} <span class="sub">costo finale ${eur0(p.perAv)}</span>`}</dd></dl>
+    <dt>Margine finale in base all'avanzamento lavori (${pct(k.av*100)})</dt><dd>${p.perAv==null?'<span class="sub">serve almeno il 5% di avanzamento</span>':`${marg(p.margAv)} <span class="sub">costo finale ${eur0(p.perAv)}</span>`}</dd></dl>
    <p class="note">La media nel tempo funziona bene per la manodopera ma non per materiali e subappalti, che pesano a blocchi. Più il lavoro procede, più la stima diventa affidabile. Le voci impegnate (ordini) non sono mai conteggiate meno del loro valore.</p>
   </div></div>`;
 }
@@ -1014,7 +1015,7 @@ function tPanoramica(c,k){
   const ban=c.budgetProvvisorio?`<div class="banner">${pill('Esempio','warn')}<span>Il budget costi di questo cantiere è provvisorio. Sostituiscilo con quello del tuo computo per avere un margine affidabile.</span><button class="btn sm" data-act="budget" data-id="${c.id}">Imposta budget</button></div>`:(!k.haBudget?`<div class="banner">${pill('Budget mancante','info')}<span>Senza budget costi non posso stimare il margine finale.</span><button class="btn sm" data-act="budget" data-id="${c.id}">Imposta budget</button></div>`:'');
   const flow=[['Contratto',k.contratto],['Maturato',k.maturato],['Fatturato',k.fatturato],['Incassato',k.incassato]];
   return ban+bannerSal(c,k)+`<div class="kpis">
-   ${kpi('Avanzamento lavori',pct(k.avanz*100),`${eur0(k.maturato)} maturati su ${eur0(k.contratto)}`,'--s1')}
+   ${kpi('Avanzamento lavori',pct(k.av*100),k.hasLav?`${eur0(k.matAv)} eseguiti (lavorazioni) · SAL emessi ${eur0(k.maturato)}`:`${eur0(k.maturato)} maturati su ${eur0(k.contratto)}`,'--s1')}
    ${kpi('Costi sostenuti',eur(k.consT),`${pct(k.contratto?k.consT/k.contratto*100:0)} del contratto`,'--s2')}
    ${kpi('Utilizzo budget costi',k.budT?pct(k.consT/k.budT*100,2):'—',k.budT?`su ${eur0(k.budT)} di budget`:'budget non impostato','--s3')}
    ${kpi('Margine previsto',k.haBudget?eur0(k.margine):'—',k.haBudget?`${pct(k.marginePct)} · stima a finire ${eur0(k.eacT)}`:'imposta il budget','--s4')}
@@ -1110,7 +1111,7 @@ function tScost(c,k){
   return `<div class="row" style="margin-bottom:12px"><button class="btn" data-act="budget" data-id="${c.id}">Budget costi</button></div>
   <div class="kpis k3 sm"><div class="kpi" style="--k:var(--s2)"><div class="l">Budget costi</div><div class="v">${k.budT?eur0(k.budT):'—'}</div><div class="s">${k.budT?'margine di budget '+eur0(k.contratto-k.budT):'non impostato'}</div></div>
    ${kpi('Stima a finire',eur0(k.eacT),'sostenuto + impegnato, o budget se maggiore','--s1')}
-   ${kpi('Ritmo attuale',k.proiezione!=null?eur0(k.proiezione):'—',k.proiezione!=null?'costi diviso avanzamento SAL':'serve almeno il 5% di avanzamento','--s4')}</div>
+   ${kpi('Ritmo attuale',k.proiezione!=null?eur0(k.proiezione):'—',k.proiezione!=null?'costi diviso avanzamento lavori':'serve almeno il 5% di avanzamento','--s4')}</div>
   <div class="card sec"><h2>Budget, sostenuto e impegnato per categoria</h2>
    <div class="leg"><span><i></i>Sostenuto</span><span><i class="h"></i>Impegnato</span><span><i class="t"></i>Budget</span></div>
    <div class="bars">${CAT.map(t=>{const cs=k.cons[t.k],im=k.imp[t.k],bu=k.bud[t.k],d=cs+im-bu;
