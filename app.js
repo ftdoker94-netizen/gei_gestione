@@ -391,7 +391,7 @@ function mSal(id,cid,pre){
     ${F.m('importo','Importo maturato nel SAL (€)',s.importo,{req:1,cls:'full'})}
     ${F.c('fatturato','SAL fatturato',s.fatturato,{cls:'full'})}
     ${F.t('dataFattura','Data fattura',s.dataFattura,{type:'date'})}${F.t('scadenza','Scadenza incasso',s.scadenza,{type:'date'})}
-  </div><p class="hint">Se non indichi la scadenza, per la previsione di cassa si assumono 60 giorni dalla fattura. Gli incassi (anche in più date) si registrano dal pulsante «Incassi» del SAL.</p>`,
+  </div>${pre&&pre.rataId?`<p class="hint"><b>Attenzione:</b> nei SAL di questo cantiere ci sono già ${eur0(sum(S.sal.filter(y=>y.cantiereId===cid),y=>y.importo))}. Se questa rata è già stata emessa, annulla e usa «Già emesso: collega SAL».</p>`:''}<p class="hint">Se non indichi la scadenza, per la previsione di cassa si assumono 60 giorni dalla fattura. Gli incassi (anche in più date) si registrano dal pulsante «Incassi» del SAL.</p>`,
   async d=>{
     const nid=await put('sal',{...s,cantiereId:cid,n:num(d.n),data:d.data,importo:num(d.importo),fatturato:!!d.fatturato,dataFattura:d.dataFattura,scadenza:d.scadenza,...(pre&&pre.rataId?{rataId:pre.rataId}:{})});
     if(pre&&pre.rataId){const cc=S.cantieri.find(y=>y.id===cid);if(cc)await put('cantieri',{...cc,rate:(cc.rate||[]).map(r=>r.id===pre.rataId?{...r,salId:nid||s.id}:r)})}
@@ -800,13 +800,18 @@ function lavStato(c,d){
 }
 function rateStato(c,d){
   d=d||today();
-  return (c.rate||[]).map(r=>{
+  const rate=c.rate||[],mie=S.sal.filter(x=>x.cantiereId===c.id),taken=new Set();
+  const imp=r=>num(c.contratto)*num(r.pct)/100;
+  const diretto=r=>mie.find(x=>x.id===r.salId)||mie.find(x=>x.rataId===r.id);
+  rate.forEach(r=>{const x=diretto(r);if(x)taken.add(x.id)});
+  return rate.map(r=>{
     const vv=lavDi(c).filter(l=>l.rataId===r.id),tot=sum(vv,l=>num(l.importo));
     const p=vv.length?(tot?sum(vv,l=>num(l.importo)*pctAt(l,d))/tot:sum(vv,l=>pctAt(l,d))/vv.length):(r.manuale&&r.manuale<=d?100:0);
-    const sal=r.salId&&S.sal.find(x=>x.id===r.salId);
-    const importo=num(c.contratto)*num(r.pct)/100;
+    const importo=imp(r);
+    let sal=diretto(r),auto=false;
+    if(!sal){sal=mie.find(x=>!taken.has(x.id)&&Math.abs(num(x.importo)-importo)<1);if(sal){taken.add(sal.id);auto=true}}
     const st=sal?'richiesta':p>=99.5?'maturata':p>0?'corso':'attesa';
-    return {r,vv,p,importo,sal,st,manuale:!vv.length};
+    return {r,vv,p,importo,sal,auto,st,manuale:!vv.length};
   });
 }
 function salDisp(c,k,d){
@@ -839,8 +844,17 @@ function boxRate(c,k){
   if(!rt.length)return `<div class="sec"><div class="card"><h2>Piano dei SAL</h2><p class="note" style="margin:0 0 10px">Se il contratto prevede rate a evento (es. 20% alla firma, 30% a fine impianti…), inseriscile qui: l'app ti avvisa quando una rata è maturata.</p><button class="btn" data-act="lav-rate" data-cid="${c.id}">Imposta il piano dei SAL</button></div></div>`;
   const pl={richiesta:pill('SAL emesso','mute'),maturata:pill('Maturata: chiedi il SAL','good'),corso:pill('In corso','info'),attesa:pill('Non iniziata','mute')};
   return `<div class="sec"><h2>Piano dei SAL <button class="btn sm" data-act="lav-rate" data-cid="${c.id}">Modifica piano</button></h2><div class="tw"><table><thead><tr><th>Rata</th><th class="n">Importo</th><th>Si sblocca con</th><th style="min-width:150px">Avanzamento</th><th>Stato</th><th></th></tr></thead><tbody>
-  ${rt.map(x=>`<tr><td>${esc(x.r.nome)}<span class="sub">${pct(num(x.r.pct),0)} del contratto</span></td><td class="n">${eur0(x.importo)}</td><td style="white-space:normal;max-width:260px">${x.manuale?'<span class="sub">Nessuna lavorazione collegata: la segni tu come maturata</span>':esc(x.vv.map(l=>l.nome).join(', '))}</td><td><div class="rbar2"><i style="width:${x.p}%"></i></div><b>${pct(x.p,0)}</b></td><td>${pl[x.st]}${x.sal?`<span class="sub">SAL n. ${x.sal.n}</span>`:''}</td><td><div class="acts">${x.st==='maturata'?`<button class="btn sm pri" data-act="lav-sal" data-cid="${c.id}" data-rata="${x.r.id}">Crea SAL</button>`:''}${x.manuale&&x.st==='attesa'?`<button class="btn sm" data-act="rata-ok" data-cid="${c.id}" data-rata="${x.r.id}">Segna maturata</button>`:''}${x.manuale&&x.st==='maturata'?`<button class="btn sm" data-act="rata-ko" data-cid="${c.id}" data-rata="${x.r.id}">Annulla</button>`:''}</div></td></tr>`).join('')}
+  ${rt.map(x=>`<tr><td>${esc(x.r.nome)}<span class="sub">${pct(num(x.r.pct),0)} del contratto</span></td><td class="n">${eur0(x.importo)}</td><td style="white-space:normal;max-width:260px">${x.manuale?'<span class="sub">Nessuna lavorazione collegata: la segni tu come maturata</span>':esc(x.vv.map(l=>l.nome).join(', '))}</td><td><div class="rbar2"><i style="width:${x.p}%"></i></div><b>${pct(x.p,0)}</b></td><td>${pl[x.st]}${x.sal?`<span class="sub">SAL n. ${x.sal.n}</span>`:''}</td><td><div class="acts">${x.st==='maturata'?`<button class="btn sm pri" data-act="lav-sal" data-cid="${c.id}" data-rata="${x.r.id}">Crea SAL</button>`:''}${!x.sal?`<button class="btn sm" data-act="rata-link" data-cid="${c.id}" data-rata="${x.r.id}">Già emesso: collega SAL</button>`:''}${x.manuale&&x.st==='attesa'?`<button class="btn sm" data-act="rata-ok" data-cid="${c.id}" data-rata="${x.r.id}">Segna maturata</button>`:''}${x.manuale&&x.st==='maturata'?`<button class="btn sm" data-act="rata-ko" data-cid="${c.id}" data-rata="${x.r.id}">Annulla</button>`:''}</div></td></tr>`).join('')}
   </tbody><tfoot><tr><td>Totale piano</td><td class="n">${eur0(sum(rt,x=>x.importo))}</td><td colspan="4"><span class="sub">${pct(sum(rt,x=>num(x.r.pct)),0)} del contratto</span></td></tr></tfoot></table></div></div>`;
+}
+function mRataLink(cid,rid){
+  const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
+  const rt=rateStato(c),me=rt.find(x=>x.r.id===rid);if(!me)return;
+  const usati=new Set(rt.filter(x=>x.sal).map(x=>x.sal.id));
+  const lib=S.sal.filter(x=>x.cantiereId===cid&&!usati.has(x.id)).sort((a,b)=>num(a.n)-num(b.n));
+  if(!lib.length){toast('Non ci sono SAL liberi da collegare: crea il SAL con «Crea SAL»');return}
+  modal('Collega un SAL già emesso',`<div class="fields">${F.s('sal','Rata «'+esc(me.r.nome)+'» ('+eur0(me.importo)+')',lib.map(x=>[x.id,'SAL '+x.n+' · '+eur0(x.importo)+' · '+dt(x.data)]),lib[0].id,{cls:'full'})}</div><p class="hint">Il SAL esiste già e viene solo collegato a questa rata: non ne viene creato un altro.</p>`,
+  d=>put('cantieri',{...c,rate:(c.rate||[]).map(r=>r.id===rid?{...r,salId:d.sal}:r)}),{save:'Collega'});
 }
 function mRate(cid){
   const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
@@ -1344,6 +1358,7 @@ document.addEventListener('click',async e=>{
    case 'lav-sogl':mLavSoglia(el.dataset.cid);break;
    case 'lav-oggi':ui.lavD='';render();break;
    case 'lav-rate':mRate(el.dataset.cid);break;
+   case 'rata-link':mRataLink(el.dataset.cid,el.dataset.rata);break;
    case 'rata-ok':case 'rata-ko':{const c=S.cantieri.find(y=>y.id===el.dataset.cid);if(!c)break;
      await put('cantieri',{...c,rate:(c.rate||[]).map(r=>r.id===el.dataset.rata?{...r,manuale:a==='rata-ok'?today():''}:r)});break}
    case 'lav-sal':{const c=S.cantieri.find(y=>y.id===el.dataset.cid);if(!c)break;const x=salDisp(c,calc(c));const rt=el.dataset.rata&&rateStato(c).find(y=>y.r.id===el.dataset.rata);
