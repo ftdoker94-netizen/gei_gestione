@@ -818,7 +818,7 @@ function rateStato(c,d){
     const p=vv.length?(tot?sum(vv,l=>num(l.importo)*pctAt(l,d))/tot:sum(vv,l=>pctAt(l,d))/vv.length):(r.manuale&&r.manuale<=d?100:0);
     const importo=imp(r);
     let sal=diretto(r),auto=false;
-    if(!sal){sal=mie.find(x=>!taken.has(x.id)&&Math.abs(num(x.importo)-importo)<1);if(sal){taken.add(sal.id);auto=true}}
+    if(!sal&&r.salId!=='-'){const stessi=rate.filter(y=>Math.abs(imp(y)-importo)<1).length,cand=mie.filter(x=>!taken.has(x.id)&&Math.abs(num(x.importo)-importo)<1);if(stessi===1&&cand.length){cand.sort((a,b)=>num(a.n)-num(b.n));sal=cand[0];taken.add(sal.id);auto=true}}
     const st=sal?'richiesta':p>=99.5?'maturata':p>0?'corso':'attesa';
     return {r,vv,p,importo,sal,auto,st,manuale:!vv.length};
   });
@@ -853,7 +853,7 @@ function boxRate(c,k){
   if(!rt.length)return `<div class="sec"><div class="card"><h2>Piano dei SAL</h2><p class="note" style="margin:0 0 10px">Se il contratto prevede rate a evento (es. 20% alla firma, 30% a fine impianti…), inseriscile qui: l'app ti avvisa quando una rata è maturata.</p><button class="btn" data-act="lav-rate" data-cid="${c.id}">Imposta il piano dei SAL</button></div></div>`;
   const pl={richiesta:pill('SAL emesso','mute'),maturata:pill('Maturata: chiedi il SAL','good'),corso:pill('In corso','info'),attesa:pill('Non iniziata','mute')};
   return `<div class="sec"><h2>Piano dei SAL <button class="btn sm" data-act="lav-rate" data-cid="${c.id}">Modifica piano</button></h2><div class="tw"><table><thead><tr><th>Rata</th><th class="n">Importo</th><th>Si sblocca con</th><th style="min-width:150px">Avanzamento</th><th>Stato</th><th></th></tr></thead><tbody>
-  ${rt.map(x=>`<tr><td>${esc(x.r.nome)}<span class="sub">${pct(num(x.r.pct),0)} del contratto</span></td><td class="n">${eur0(x.importo)}</td><td style="white-space:normal;max-width:260px">${x.manuale?'<span class="sub">Nessuna lavorazione collegata: la segni tu come maturata</span>':esc(x.vv.map(l=>l.nome).join(', '))}</td><td><div class="rbar2"><i style="width:${x.p}%"></i></div><b>${pct(x.p,0)}</b></td><td>${pl[x.st]}${x.sal?`<span class="sub">SAL n. ${x.sal.n}</span>`:''}</td><td><div class="acts">${x.st==='maturata'?`<button class="btn sm pri" data-act="lav-sal" data-cid="${c.id}" data-rata="${x.r.id}">Crea SAL</button>`:''}${!x.sal?`<button class="btn sm" data-act="rata-link" data-cid="${c.id}" data-rata="${x.r.id}">Già emesso: collega SAL</button>`:''}${x.manuale&&x.st==='attesa'?`<button class="btn sm" data-act="rata-ok" data-cid="${c.id}" data-rata="${x.r.id}">Segna maturata</button>`:''}${x.manuale&&x.st==='maturata'?`<button class="btn sm" data-act="rata-ko" data-cid="${c.id}" data-rata="${x.r.id}">Annulla</button>`:''}</div></td></tr>`).join('')}
+  ${rt.map(x=>`<tr><td>${esc(x.r.nome)}<span class="sub">${pct(num(x.r.pct),0)} del contratto</span></td><td class="n">${eur0(x.importo)}</td><td style="white-space:normal;max-width:260px">${x.manuale?'<span class="sub">Nessuna lavorazione collegata: la segni tu come maturata</span>':esc(x.vv.map(l=>l.nome).join(', '))}</td><td><div class="rbar2"><i style="width:${x.p}%"></i></div><b>${pct(x.p,0)}</b></td><td>${pl[x.st]}${x.sal?`<span class="sub">SAL n. ${x.sal.n}</span>`:''}</td><td><div class="acts">${x.st==='maturata'?`<button class="btn sm pri" data-act="lav-sal" data-cid="${c.id}" data-rata="${x.r.id}">Crea SAL</button>`:''}${x.sal?`<button class="btn sm" data-act="rata-un" data-cid="${c.id}" data-rata="${x.r.id}">Non è questo SAL: scollega</button>`:''}${!x.sal?`<button class="btn sm" data-act="rata-link" data-cid="${c.id}" data-rata="${x.r.id}">Già emesso: collega SAL</button>`:''}${x.manuale&&x.st==='attesa'?`<button class="btn sm" data-act="rata-ok" data-cid="${c.id}" data-rata="${x.r.id}">Segna maturata</button>`:''}${x.manuale&&x.st==='maturata'?`<button class="btn sm" data-act="rata-ko" data-cid="${c.id}" data-rata="${x.r.id}">Annulla</button>`:''}</div></td></tr>`).join('')}
   </tbody><tfoot><tr><td>Totale piano</td><td class="n">${eur0(sum(rt,x=>x.importo))}</td><td colspan="4"><span class="sub">${pct(sum(rt,x=>num(x.r.pct)),0)} del contratto</span></td></tr></tfoot></table></div></div>`;
 }
 function mRataLink(cid,rid){
@@ -1374,6 +1374,7 @@ document.addEventListener('click',async e=>{
    case 'lav-sogl':mLavSoglia(el.dataset.cid);break;
    case 'lav-oggi':ui.lavD='';render();break;
    case 'lav-rate':mRate(el.dataset.cid);break;
+   case 'rata-un':{const c=S.cantieri.find(y=>y.id===el.dataset.cid);if(c){const rid=el.dataset.rata;const sl=S.sal.filter(y=>y.cantiereId===c.id&&y.rataId===rid);for(const y of sl)await put('sal',{...y,rataId:''},true);await put('cantieri',{...c,rate:(c.rate||[]).map(r=>r.id===rid?{...r,salId:'-'}:r)});toast('SAL scollegato dalla rata')}break}
    case 'rata-link':mRataLink(el.dataset.cid,el.dataset.rata);break;
    case 'rata-ok':case 'rata-ko':{const c=S.cantieri.find(y=>y.id===el.dataset.cid);if(!c)break;
      await put('cantieri',{...c,rate:(c.rate||[]).map(r=>r.id===el.dataset.rata?{...r,manuale:a==='rata-ok'?today():''}:r)});break}
