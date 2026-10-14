@@ -581,7 +581,7 @@ function vImpresa(){
   const da=daAssegnare();
   if(da.length)todo.push({k:'warn',t:`${da.length} fatture da assegnare a un cantiere`,go:'fatture',lab:'Assegna'});
   rows.forEach(({c,k:kk})=>{
-    {const sd=salDisp(c,kk);if(c.stato!=='chiuso'&&sd&&sd.pronto)todo.push({k:'good',t:`${c.nome}: puoi chiedere un SAL di ${eur0(sd.disp)}`,cid:c.id,tab:'lav'})}
+    {const sd=salDisp(c,kk);if(c.stato!=='chiuso'&&sd&&sd.pronto)todo.push({k:'good',t:`${c.nome}: puoi chiedere un SAL di ${eur0(sd.disp)}`,cid:c.id,tab:'sal'})}
     if(kk.daFatturare>1)todo.push({k:'warn',t:`${c.nome}: ${eur0(kk.daFatturare)} di SAL maturati da fatturare`,cid:c.id,tab:'sal'});
     S.sal.filter(s=>s.cantiereId===c.id&&s.fatturato).forEach(s=>{const st=salStato(s,c);if(st.k==='bad')todo.push({k:'bad',t:`${c.nome}: SAL ${s.n} scaduto, da incassare ${eur0(num(s.importo)*(1-kk.rit)-incTot(s))}`,cid:c.id,tab:'sal'})});
     if(c.stato!=='chiuso'&&!kk.haBudget)todo.push({k:'info',t:`${c.nome}: imposta il budget costi per vedere il margine previsto`,cid:c.id,tab:'scost'});
@@ -625,11 +625,20 @@ function vCantieri(){
    <div class="row" style="justify-content:space-between;font-size:14px"><span>Costi <b>${eur0(k.consT)}</b></span><span>Margine <b>${k.haBudget?pct(k.marginePct):'—'}</b></span></div></button>`}).join('')}</div>`;
 }
 
+function tSalLav(c,k){
+  const d=ui.lavD||today(),x=salDisp(c,k,d),L=x?x.L:lavStato(c,d),hasL=L.voci.length>0;
+  const rtS=rateStato(c),rmap={};rtS.forEach(y=>{if(y.sal)rmap[y.sal.id]=1});
+  const fuori=(c.rate||[]).length?k.sal.filter(y=>!rmap[y.id]):[];
+  const avviso=fuori.length?`<div class="banner" style="border-left-color:var(--bad)">${pill('Controlla','bad')}<span><b>${fuori.length===1?'1 SAL non corrisponde':fuori.length+' SAL non corrispondono'} a nessuna rata del piano</b> (${fuori.map(y=>'N° '+y.n+' '+eur0(y.importo)).join(', ')}). Se sono doppioni eliminali nella tabella «SAL emessi» qui sotto.</span></div>`:'';
+  const av=hasL?L.avanz:k.avanz;
+  const kp=`<div class="kpis k6 sm">${kpi('Avanzamento lavori',pct(av*100),hasL?'dalle lavorazioni':'dai SAL emessi','--s1')}${kpi('SAL emessi',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s2')}${kpi('Fatturato',eur0(k.fatturato),'','--s3')}${kpi('Incassato',eur0(k.incassato),'','--s4')}${kpi('Da incassare',eur0(k.daIncassare),'al netto delle ritenute','--s5')}${kpi('Ritenute',eur0(k.ritenute),pct(c.ritenutaPct||0)+' sul maturato','--s1')}</div>`;
+  return avviso+bannerSal(c,k)+kp+tLav(c,k,true)+tSal(c,k,true);
+}
 function vCantiere(){
   const c=S.cantieri.find(x=>x.id===ui.cid);
   if(!c){ui.view='cantieri';return vCantieri()}
   const k=calc(c);
-  const tabs=[['panoramica','Panoramica'],['costi','Costi'],['lav','Lavorazioni'],['sal','SAL e ricavi'],['sub','Subappalti'],['ore','Rapportini'],['scost','Scostamenti']];
+  const tabs=[['panoramica','Panoramica'],['costi','Costi'],['sal','SAL e lavorazioni'],['sub','Subappalti'],['ore','Rapportini'],['scost','Scostamenti']];
   const head=`<div class="site-h"><div class="thumb">${svg(ICON.img)}</div><div class="info"><h1>${esc(c.nome)} ${statoPill(c.stato)}</h1>
     <div class="meta">${esc(c.descrizione||'')}</div><div class="meta">${esc(c.indirizzo||'')}${c.committente?' · '+esc(c.committente):''}</div>
     <div class="row" style="margin-top:8px"><button class="btn sm" data-act="edit-c" data-id="${c.id}">Modifica cantiere</button><button class="btn sm" data-act="report" data-id="${c.id}">Esporta PDF</button><button class="link" data-act="nav" data-v="cantieri">Tutti i cantieri</button></div></div>
@@ -638,7 +647,7 @@ function vCantiere(){
     <div class="row"><button class="btn sm" data-act="per" data-p="7">Ultimi 7 giorni</button><button class="btn sm" data-act="per" data-p="30">Ultimi 30 giorni</button><button class="btn sm" data-act="per" data-p="all">Da inizio lavori</button></div>
     <label class="f"><span>Dal</span><input type="date" id="per-da" value="${ui.da}"></label><label class="f"><span>Al</span><input type="date" id="per-a" value="${ui.a}"></label></div>`:''}</div>`:'';
   const tabsH=`<div class="tabs" role="tablist">${tabs.map(([t,l])=>`<button class="tab" role="tab" data-act="tab" data-tab="${t}" aria-selected="${ui.tab===t}">${l}</button>`).join('')}${per}</div>`;
-  const body={panoramica:tPanoramica,costi:tCosti,lav:tLav,sal:tSal,sub:tSub,ore:tOre,scost:tScost}[ui.tab]||tPanoramica;
+  const body={panoramica:tPanoramica,costi:tCosti,lav:tSalLav,sal:tSalLav,sub:tSub,ore:tOre,scost:tScost}[ui.tab]||tPanoramica;
   return head+tabsH+body(c,k);
 }
 /* ---------- report PDF per cantiere ---------- */
@@ -867,14 +876,14 @@ function mRate(cid){
     return put('cantieri',{...c,rate:list});
   });
 }
-function tLav(c,k){
+function tLav(c,k,m){
   const d=ui.lavD||today(),x=salDisp(c,k,d),L=x?x.L:lavStato(c,d);
   const nuovo=`<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="lav-upd" data-cid="${c.id}">Aggiorna avanzamento</button><button class="btn" data-act="add-lav" data-cid="${c.id}">Nuova lavorazione</button><button class="btn" data-act="lav-imp" data-cid="${c.id}">Importa da Excel / elenco</button>${(c.rate||[]).length?'':`<button class="btn" data-act="lav-sogl" data-cid="${c.id}">Soglia SAL</button>`}<input type="file" id="lavin" accept=".xlsx,.xls,.csv" data-cid="${c.id}" hidden></div>`;
   if(!L.voci.length)return nuovo+boxRate(c,k)+`<div class="empty"><h3>Nessuna lavorazione</h3><span>Inserisci le voci del cantiere con il loro importo (o importale dal computo in Excel). Poi aggiorni le percentuali giorno per giorno e l'app ti dice quando chiedere il SAL.</span></div>`;
   const diff=L.tot&&c.contratto&&Math.abs(L.tot-num(c.contratto))>1;
-  return `${bannerSal(c,k)}${nuovo}${boxRate(c,k)}
+  return `${m?'':bannerSal(c,k)}${nuovo}${boxRate(c,k)}
   <div class="row" style="margin:18px 0 10px;gap:10px"><label class="f" style="margin:0"><span>Situazione al giorno</span><input type="date" id="lav-d" value="${d}"></label>${d!==today()?`<button class="btn sm" data-act="lav-oggi">Oggi</button>`:''}</div>
-  <div class="kpis k6 sm">${kpi('Avanzamento lavori',pct(L.avanz*100),'media pesata sulle voci','--s1')}${kpi('Maturato da lavorazioni',eur0(L.mat),'su '+eur0(L.base),'--s2')}${kpi('Già nei SAL',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s3')}${kpi('Disponibile per un SAL',eur0(Math.max(0,x.disp)),x.rate?(x.pronto?x.pronte.length+' rate maturate':'nessuna rata maturata'):(x.pronto?'soglia raggiunta':'soglia '+(x.tp==='importo'?eur0(x.soglia):pct(x.tv,0)+' = '+eur0(x.soglia))),'--s4')}</div>
+  ${m?'':`<div class="kpis k6 sm">${kpi('Avanzamento lavori',pct(L.avanz*100),'media pesata sulle voci','--s1')}${kpi('Maturato da lavorazioni',eur0(L.mat),'su '+eur0(L.base),'--s2')}${kpi('Già nei SAL',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s3')}${kpi('Disponibile per un SAL',eur0(Math.max(0,x.disp)),x.rate?(x.pronto?x.pronte.length+' rate maturate':'nessuna rata maturata'):(x.pronto?'soglia raggiunta':'soglia '+(x.tp==='importo'?eur0(x.soglia):pct(x.tv,0)+' = '+eur0(x.soglia))),'--s4')}</div>`}
   <div class="sec"><h2>Lavorazioni al ${dt(d)}</h2><div class="tw"><table><thead><tr><th>Lavorazione</th><th class="n">Importo</th><th style="min-width:150px">Avanzamento</th><th class="n">Maturato</th><th>Aggiornata</th><th></th></tr></thead><tbody>
   ${L.voci.map(v=>{const ult=(v.l.storico||[]).filter(e=>e.d<=d).map(e=>e.d).sort().pop();return `<tr><td>${esc(v.l.nome)}</td><td class="n">${eur0(v.imp)}</td><td><div class="rbar2"><i style="width:${v.p}%"></i></div><b>${pct(v.p,0)}</b></td><td class="n">${eur0(v.mat)}</td><td>${ult?dts(ult):'—'}</td><td><div class="acts"><button class="btn sm" data-act="edit-lav" data-id="${v.l.id}" data-cid="${c.id}">Modifica</button>${delBtn('lav',v.l.id)}</div></td></tr>`}).join('')}
   </tbody><tfoot><tr><td>Totale</td><td class="n">${eur0(L.base)}</td><td><b>${pct(L.avanz*100)}</b></td><td class="n">${eur0(L.mat)}</td><td></td><td></td></tr></tfoot></table></div>
@@ -1059,12 +1068,12 @@ function tCosti(c,k){
   :`<div class="empty"><h3>Nessun costo registrato</h3><span>Importa le fatture XML oppure aggiungi un costo a mano.</span></div>`}
   <p class="note">Le ore degli operai e il maturato dei subappalti sono nelle rispettive schede e si sommano da soli ai costi.</p>`;
 }
-function tSal(c,k){
+function tSal(c,k,m){
   const rtS=rateStato(c),rmap={};rtS.forEach(x=>{if(x.sal)rmap[x.sal.id]=x.r.nome});
   const hasR=(c.rate||[]).length>0,fuori=hasR?k.sal.filter(s=>!rmap[s.id]):[];
   const avviso=fuori.length?`<div class="banner" style="border-left-color:var(--bad)">${pill('Controlla','bad')}<span><b>${fuori.length===1?'1 SAL non corrisponde':fuori.length+' SAL non corrispondono'} a nessuna rata del piano</b> (${fuori.map(s=>'N° '+s.n+' '+eur0(s.importo)).join(', ')}). Se sono doppioni, eliminali: il maturato e l'avanzamento sono la somma di tutti i SAL elencati qui sotto.</span></div>`:'';
-  return avviso+`<div class="kpis k6 sm">${kpi('Maturato',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s1')}${kpi('Fatturato',eur0(k.fatturato),'','--s3')}${kpi('Incassato',eur0(k.incassato),'','--s2')}${kpi('Da fatturare',eur0(k.daFatturare),'SAL non ancora fatturati','--s4')}${kpi('Da incassare',eur0(k.daIncassare),'al netto delle ritenute','--s5')}${kpi('Ritenute',eur0(k.ritenute),pct(c.ritenutaPct||0)+' sul maturato','--s1')}</div>
-  <div class="sec"><h2>Stati di avanzamento <button class="btn pri sm" data-act="add-sal" data-cid="${c.id}">Nuovo SAL</button></h2>
+  return (m?'':avviso)+`${m?'':`<div class="kpis k6 sm">${kpi('Maturato',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s1')}${kpi('Fatturato',eur0(k.fatturato),'','--s3')}${kpi('Incassato',eur0(k.incassato),'','--s2')}${kpi('Da fatturare',eur0(k.daFatturare),'SAL non ancora fatturati','--s4')}${kpi('Da incassare',eur0(k.daIncassare),'al netto delle ritenute','--s5')}${kpi('Ritenute',eur0(k.ritenute),pct(c.ritenutaPct||0)+' sul maturato','--s1')}</div>`}
+  <div class="sec"><h2>SAL emessi <button class="btn pri sm" data-act="add-sal" data-cid="${c.id}">Nuovo SAL</button></h2>
   ${k.sal.length?`<div class="tw"><table><thead><tr><th>SAL</th>${hasR?'<th>Rata</th>':''}<th>Data</th><th class="n">Importo</th><th class="n">% contratto</th><th>Stato</th><th>Scadenza</th><th class="n">Incassato</th><th></th></tr></thead><tbody>
   ${k.sal.map(s=>{const st=salStato(s,c);return `<tr><td>N° ${s.n}</td>${hasR?`<td style="white-space:normal">${rmap[s.id]?esc(rmap[s.id]):'<b style="color:var(--bad-ink,#b42318)">fuori piano</b>'}</td>`:''}<td>${dt(s.data)}</td><td class="n">${eur(s.importo)}</td><td class="n">${pct(k.contratto?num(s.importo)/k.contratto*100:0)}</td><td>${pill(st.t,st.k)}</td><td>${s.fatturato?dt(s.scadenza||addDays(s.dataFattura||s.data,60)):'—'}</td><td class="n">${eur(incTot(s))}${incs(s).length>1?`<span class="sub">${incs(s).map(i=>dts(i.d)+' '+eur0(i.v)).join(' · ')}</span>`:(incs(s).length?`<span class="sub">${dts(incs(s)[0].d)}</span>`:'')}</td>
   <td><div class="acts">${s.fatturato&&st.k!=='good'?`<button class="btn sm" data-act="incasso" data-id="${s.id}">Registra incasso</button>`:''}${incs(s).length?`<button class="btn sm" data-act="incassi" data-id="${s.id}">Incassi</button>`:''}<button class="btn sm" data-act="edit-sal" data-id="${s.id}" data-cid="${c.id}">Modifica</button>${delBtn('sal',s.id)}</div></td></tr>`}).join('')}
