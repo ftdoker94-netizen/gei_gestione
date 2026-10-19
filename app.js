@@ -1312,6 +1312,26 @@ function scadHtml(){
   :`<div class="empty"><h3>Nessuna scadenza</h3><span>Genera le scadenze fiscali ordinarie di una SRL, poi inserisci gli importi stimati. Aggiungi a mano rate di finanziamenti e leasing.</span></div>`}
   <p class="note">Date ordinarie per una SRL con anno solare in contabilità ordinaria, con liquidazione IVA ${cfg().iva==='mens'?'mensile':'trimestrale'} (si cambia in Impostazioni). Se cadono in un festivo slittano al primo giorno lavorativo. Gli importi li stimi tu o il commercialista: a zero restano in elenco ma non entrano nella previsione. Ritenute e INPS mensili mettile qui come rata o nei costi fissi, non in entrambi.</p></div>`;
 }
+
+/* ---------- accessi capocantiere (app Rapportini) ---------- */
+async function loadCapi(){
+  try{const {data,error}=await window.GEI_SB.from('capi').select('*').order('creato');if(error)throw error;ui.capi=data||[];ui.capiErr=''}
+  catch(e){ui.capi=[];ui.capiErr=/capi/i.test(e.message||'')?'manca':'err'}
+  if(ui.view==='impost')render();
+}
+function boxCapi(){
+  if(ui.capi===undefined){ui.capi=null;loadCapi()}
+  const url=location.href.replace(/[^/]*$/,'')+'rapportini.html';
+  let corpo;
+  if(ui.capi===null)corpo='<p class="note">Carico…</p>';
+  else if(ui.capiErr==='manca')corpo='<p class="note">Manca la parte di database per il capocantiere: esegui una volta <b>supabase/migrations/002_capocantiere.sql</b> nel SQL Editor di Supabase, poi ricarica questa pagina.</p>';
+  else corpo=(ui.capi.length?`<div class="tw"><table><thead><tr><th>Capocantiere</th><th>Email</th><th>Accesso</th><th></th></tr></thead><tbody>${ui.capi.map(x=>`<tr><td>${esc(x.nome||'—')}</td><td>${esc(x.email)}</td><td>${x.attivo?pill('Attivo','good'):pill('Revocato','bad')}</td><td><div class="acts"><button class="btn sm" data-act="capo-tog" data-em="${esc(x.email)}">${x.attivo?'Revoca accesso':'Riattiva'}</button></div></td></tr>`).join('')}</tbody></table></div>`:'<p class="note">Nessun capocantiere abilitato.</p>')+`<p class="hint">App per il telefono: <b>${esc(url)}</b> (apri da Chrome/Safari e scegli "Aggiungi alla schermata Home"). Il capocantiere vede solo i nomi di cantieri e operai e i rapportini degli ultimi 30 giorni, e può modificare solo i suoi. Non vede importi, SAL né costi.</p>`;
+  return `<div class="sec"><h2>Capocantiere (app Rapportini) <button class="btn pri sm" data-act="capo-add">Aggiungi</button></h2><div class="card">${corpo}</div></div>`;
+}
+function mCapo(){
+  modal('Nuovo capocantiere',`<div class="fields">${F.t('nome','Nome',"",{req:1,cls:'full'})}${F.t('email','Email di accesso',"",{type:'email',req:1,cls:'full'})}</div><p class="hint">Ordine: 1) salva qui. 2) In Supabase → Authentication → Users → Add user con la stessa email e una password (spunta "Auto Confirm User"). Per cambiare la password: nello stesso elenco, i tre puntini → Send password recovery, oppure elimina l'utente e ricrealo. Per revocare: «Revoca accesso» qui (effetto immediato).</p>`,
+  async d=>{const email=d.email.trim().toLowerCase();const {error}=await window.GEI_SB.from('capi').upsert({email,nome:d.nome.trim(),attivo:true});if(error){toast('Non riuscito: '+error.message);return false}await loadCapi()},{save:'Abilita'});
+}
 function vImpost(){
   const k=cfg();
   return `<div class="page-h"><div><h1>Impostazioni</h1><p>Valori che usano cassa, margini e rapportini.</p></div></div>
@@ -1323,6 +1343,7 @@ function vImpost(){
    ${F.t('piva','Partita IVA di GEI (per ignorare le fatture emesse)',S.config.piva||'',{cls:'full',inputmode:'numeric'})}
   </div><p class="hint">I costi fissi comprendono struttura, stipendi e tutto ciò che esce ogni mese a prescindere dai cantieri. La soglia fa segnalare i cantieri con margine previsto più basso.</p><p class="hint">La cassa attuale è la cassa iniziale più gli incassi dei SAL meno i costi pagati registrati da quel giorno in poi. Se la lasci vuota contano tutti i movimenti registrati: usala se parti da zero. Se invece inserisci il saldo del conto di oggi, indica la data di oggi.</p><div class="mfoot"><button class="btn pri" type="submit">Salva</button></div></form>
   </div>
+  ${boxCapi()}
   <div class="sec"><h2>Fornitori ricordati</h2>${S.regole.length?`<div class="tw"><table><thead><tr><th>Fornitore</th><th>Cantiere</th><th>Categoria</th><th></th></tr></thead><tbody>${S.regole.map(r=>`<tr><td>${esc(r.fornitore)}</td><td>${esc(cName(r.cantiereId))}</td><td>${catOf(r.categoria).n}</td><td><div class="acts">${delBtn('regole',r.id)}</div></td></tr>`).join('')}</tbody></table></div>`:`<p class="note">Quando assegni una fattura e lasci spuntato "ricorda", il fornitore compare qui e le sue prossime fatture vanno da sole sul cantiere scelto.</p>`}</div>`;
 }
 
@@ -1376,6 +1397,8 @@ document.addEventListener('click',async e=>{
    case 'lav-oggi':ui.lavD='';render();break;
    case 'lav-rate':mRate(el.dataset.cid);break;
    case 'rata-un':{const c=S.cantieri.find(y=>y.id===el.dataset.cid);if(c){const rid=el.dataset.rata;const sl=S.sal.filter(y=>y.cantiereId===c.id&&y.rataId===rid);for(const y of sl)await put('sal',{...y,rataId:''},true);await put('cantieri',{...c,rate:(c.rate||[]).map(r=>r.id===rid?{...r,salId:'-'}:r)});toast('SAL scollegato dalla rata')}break}
+   case 'capo-add':mCapo();break;
+   case 'capo-tog':{const x=(ui.capi||[]).find(y=>y.email===el.dataset.em);if(x){const {error}=await window.GEI_SB.from('capi').update({attivo:!x.attivo}).eq('email',x.email);if(error)toast('Non riuscito: '+error.message);else{toast(x.attivo?'Accesso revocato':'Accesso riattivato');await loadCapi()}}break}
    case 'rata-link':mRataLink(el.dataset.cid,el.dataset.rata);break;
    case 'rata-ok':case 'rata-ko':{const c=S.cantieri.find(y=>y.id===el.dataset.cid);if(!c)break;
      await put('cantieri',{...c,rate:(c.rate||[]).map(r=>r.id===el.dataset.rata?{...r,manuale:a==='rata-ok'?today():''}:r)});break}

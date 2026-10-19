@@ -19,3 +19,8 @@ cassa e scadenze fiscali, clienti e preventivi. Sito statico (nessuna build) + d
 - `db.js` – collegamento a Supabase (tabella `docs`, aggiornamento in tempo reale)
 - `main.js` – login
 - `config.js` – URL e chiave pubblica del progetto
+
+## App Rapportini per il capocantiere
+`rapportini.html` è una pagina a parte (da installare sul telefono) per inserire le ore. L'accesso è limitato:
+esegui `supabase/migrations/002_capocantiere.sql`, poi in *Opzioni → Capocantiere* aggiungi l'email e crea lo stesso utente in
+Supabase → Authentication → Users. Revoca immediata con «Revoca accesso».
