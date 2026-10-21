@@ -150,7 +150,7 @@ function periodo(c,da,a){
   const tot=CK.reduce((t,k)=>t+by[k],0);
   return {by,tot,giorni:days.size,medio:days.size?tot/days.size:0};
 }
-const cfg=()=>({fissi:num(S.config.costiFissiMensili),cassa:num(S.config.cassaIniziale),cassaData:S.config.cassaData||'',soglia:S.config.margineMin==null?10:num(S.config.margineMin),iva:S.config.ivaRegime||'trim'});
+const cfg=()=>({fissi:num(S.config.costiFissiMensili),cassa:num(S.config.cassaIniziale),cassaData:S.config.cassaData||'',soglia:S.config.margineMin==null?10:num(S.config.margineMin),iva:S.config.ivaRegime||'trim',preavv:Math.max(10,S.config.preavvisoScad==null?14:num(S.config.preavvisoScad))});
 function salStato(s,c){
   const rit=num(c.ritenutaPct)/100,res=num(s.importo)*(1-rit)-incTot(s);
   if(!s.fatturato)return {t:'Da fatturare',k:'warn'};
@@ -596,7 +596,7 @@ function vImpresa(){
   if(rcP.length)todo.push({k:'warn',t:`${rcP.length} ${rcP.length===1?'preventivo da ricontattare':'preventivi da ricontattare'}`,go:'clienti',lab:'Apri'});
   const senzaC=S.preventivi.filter(p=>p.stato==='accettato'&&!p.cantiereId);
   if(senzaC.length)todo.push({k:'info',t:`${senzaC.length} ${senzaC.length===1?'preventivo accettato senza cantiere':'preventivi accettati senza cantiere'}`,go:'clienti',lab:'Apri'});
-  S.scad.filter(x=>!x.pagato&&x.data<=addDays(t0,14)).forEach(x=>todo.push({k:num(x.importo)?(x.data<t0?'bad':'warn'):'info',t:`${x.titolo} il ${dt(x.data)}`+(num(x.importo)?`, ${eur0(x.importo)}`:': importo da stimare'),go:'cassa',lab:'Cassa'}));
+  S.scad.filter(x=>!x.pagato&&x.data<=addDays(t0,cfg().preavv)).sort((a,b)=>a.data.localeCompare(b.data)).forEach(x=>{const g=Math.round((parse(x.data)-parse(t0))/864e5);todo.push({k:num(x.importo)?(x.data<t0?'bad':'warn'):'info',t:`${x.titolo} il ${dt(x.data)} (${g<0?'scaduta da '+(-g)+' gg':g===0?'oggi':g===1?'domani':'tra '+g+' giorni'})`+(num(x.importo)?`, ${eur0(x.importo)}`:': importo da stimare'),go:'cassa',lab:'Cassa'})});
   return `<div class="page-h"><div><h1>Impresa</h1><p>${att.length} cantieri attivi su ${S.cantieri.length}.</p></div><div class="row"><button class="btn pri" data-act="new-c">Nuovo cantiere</button></div></div>
   <div class="kpis">
    ${kpi('Portafoglio lavori',eur0(con),'contratti dei cantieri attivi','--s1')}
@@ -1318,18 +1318,18 @@ function scadHtml(){
       const def=m<mt?aperti.length>0:m<=m2;
       const op=ui.scadM[m]!==undefined?ui.scadM[m]:def;
       const lab=m==='0000-00'?'Senza data':mLab(m).replace(/^./,c=>c.toUpperCase());
-      return `<details class="mese" data-m="${m}"${op?' open':''}><summary><b>${lab}</b><span class="sub">${g.length} ${g.length===1?'scadenza':'scadenze'}</span><span class="mt">${aperti.length?`<b>${eur0(tot)}</b> da pagare`:'tutto pagato'}${scad?` ${pill(scad+' scadut'+(scad===1?'a':'e'),'bad')}`:''}${m===mt?` ${pill('Mese corrente','info')}`:''}</span></summary>
+      return `<details class="mese" data-sm="${m}"${op?' open':''}><summary><b>${lab}</b><span class="sub">${g.length} ${g.length===1?'scadenza':'scadenze'}</span><span class="mt">${aperti.length?`<b>${eur0(tot)}</b> da pagare`:'tutto pagato'}${scad?` ${pill(scad+' scadut'+(scad===1?'a':'e'),'bad')}`:''}${m===mt?` ${pill('Mese corrente','info')}`:''}</span></summary>
       <div class="tw"><table><thead><tr><th>Data</th><th>Scadenza</th><th>Tipo</th><th class="n">Importo</th><th>Stato</th><th></th></tr></thead><tbody>${g.map(row).join('')}</tbody></table></div></details>`};
     const ay=Object.keys(anni).sort();
     if(ay.length<2)return mesi.map(mdet).join('');
     return ay.map(y=>{const ms=anni[y],all=ms.reduce((a,m)=>a.concat(gr[m]),[]),ap=all.filter(x=>!x.pagato),k='Y'+y;
       const def=y<=m2.slice(0,4)&&(ap.length>0||y===mt.slice(0,4)),op=ui.scadM[k]!==undefined?ui.scadM[k]:def;
-      return `<details class="anno" data-m="${k}"${op?' open':''}><summary><b>${y}</b><span class="sub">${all.length} scadenze</span><span class="mt">${ap.length?`<b>${eur0(sum(ap,x=>num(x.importo)))}</b> da pagare`:'tutto pagato'}</span></summary>${ms.map(mdet).join('')}</details>`}).join('')})()
+      return `<details class="anno" data-sm="${k}"${op?' open':''}><summary><b>${y}</b><span class="sub">${all.length} scadenze</span><span class="mt">${ap.length?`<b>${eur0(sum(ap,x=>num(x.importo)))}</b> da pagare`:'tutto pagato'}</span></summary>${ms.map(mdet).join('')}</details>`}).join('')})()
   :`<div class="empty"><h3>Nessuna scadenza</h3><span>Genera le scadenze fiscali ordinarie di una SRL, poi inserisci gli importi stimati. Aggiungi a mano rate di finanziamenti e leasing.</span></div>`}
   <p class="note">Date ordinarie per una SRL con anno solare in contabilità ordinaria, con liquidazione IVA ${cfg().iva==='mens'?'mensile':'trimestrale'} (si cambia in Impostazioni). Se cadono in un festivo slittano al primo giorno lavorativo. Gli importi li stimi tu o il commercialista: a zero restano in elenco ma non entrano nella previsione. Ritenute e INPS mensili mettile qui come rata o nei costi fissi, non in entrambi.</p></div>`;
 }
 
-document.addEventListener('toggle',e=>{const d=e.target;if(d&&d.dataset&&d.dataset.m){ui.scadM=ui.scadM||{};ui.scadM[d.dataset.m]=d.open}},true);
+document.addEventListener('toggle',e=>{const d=e.target;if(d&&d.dataset&&d.dataset.sm){ui.scadM=ui.scadM||{};ui.scadM[d.dataset.sm]=d.open}},true);
 /* ---------- accessi capocantiere (app Rapportini) ---------- */
 async function loadCapi(){
   try{const {data,error}=await window.GEI_SB.from('capi').select('*').order('creato');if(error)throw error;ui.capi=data||[];ui.capiErr=''}
@@ -1355,6 +1355,7 @@ function vImpost(){
   <div class="grid2"><form class="card" id="cfgf"><h2>Impresa</h2><div class="fields">
    ${F.m('fissi','Costi fissi mensili (€)',k.fissi||'',{cls:'full'})}
    ${F.s('iva','Liquidazione IVA',[['trim','Trimestrale'],['mens','Mensile']],k.iva,{cls:'full'})}
+   ${F.t('preavv','Avvisami delle scadenze con anticipo di (giorni, minimo 10)',k.preavv,{type:'number',cls:'full'})}
    ${F.m('cassa','Cassa iniziale (€)',k.cassa||'')}${F.m('soglia','Soglia margine minimo (%)',k.soglia)}
    ${F.t('cassaData','Cassa iniziale riferita al giorno',k.cassaData,{type:'date',cls:'full'})}
    ${F.t('piva','Partita IVA di GEI (per ignorare le fatture emesse)',S.config.piva||'',{cls:'full',inputmode:'numeric'})}
@@ -1500,7 +1501,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('submit',e=>{
   if(e.target.id==='cfgf'){
     e.preventDefault();const fd=new FormData(e.target);
-    putConfig({costiFissiMensili:num(fd.get('fissi')),cassaIniziale:num(fd.get('cassa')),cassaData:fd.get('cassaData')||'',piva:String(fd.get('piva')||'').trim(),margineMin:num(fd.get('soglia')),ivaRegime:fd.get('iva')==='mens'?'mens':'trim'});toast('Impostazioni salvate');
+    putConfig({costiFissiMensili:num(fd.get('fissi')),cassaIniziale:num(fd.get('cassa')),cassaData:fd.get('cassaData')||'',piva:String(fd.get('piva')||'').trim(),margineMin:num(fd.get('soglia')),ivaRegime:fd.get('iva')==='mens'?'mens':'trim',preavvisoScad:Math.max(10,num(fd.get('preavv'))||14)});toast('Impostazioni salvate');
   }
 });
 document.addEventListener('dragover',e=>{const d=e.target.closest('#drop');if(d){e.preventDefault();d.classList.add('over')}});
