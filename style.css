@@ -282,3 +282,20 @@ details.alt summary{cursor:pointer;color:var(--ink-2);font-size:13px}
 }
 
 .rbar2{display:inline-block;vertical-align:middle;width:90px;height:8px;border-radius:5px;background:var(--surface-2);overflow:hidden;margin-right:8px;border:1px solid var(--line)}.rbar2 i{display:block;height:100%;background:var(--accent,#0e8a8a)}
+
+details.mese{border:1px solid var(--line);border-radius:12px;margin:0 0 8px;background:var(--surface)}
+details.mese>summary{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 14px;cursor:pointer;list-style:none}
+details.mese>summary::-webkit-details-marker{display:none}
+details.mese>summary::before{content:'▸';color:var(--ink-2);transition:transform .15s}
+details.mese[open]>summary::before{transform:rotate(90deg)}
+details.mese>summary .mt{margin-left:auto;font-size:14px;color:var(--ink-2)}
+details.mese>summary .mt b{color:var(--ink)}
+details.mese>.tw{padding:0 6px 8px}
+details.anno{margin:0 0 10px}
+details.anno>summary{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 4px;cursor:pointer;list-style:none;font-size:17px}
+details.anno>summary::-webkit-details-marker{display:none}
+details.anno>summary::before{content:'▸';color:var(--ink-2)}
+details.anno[open]>summary::before{content:'▾'}
+details.anno>summary .mt{margin-left:auto;font-size:14px;color:var(--ink-2)}
+details.anno>summary .mt b{color:var(--ink)}
+details.anno>details.mese{margin-left:10px}

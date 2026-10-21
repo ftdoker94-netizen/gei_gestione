@@ -1306,13 +1306,30 @@ function scadHtml(){
   return `<div class="sec"><h2>Scadenziario fiscale e rate <button class="btn pri sm" data-act="gen-scad">Genera scadenze canoniche</button><button class="btn sm" data-act="pick-f24">Carica F24 (PDF)</button><input type="file" id="f24in" multiple accept=".pdf,application/pdf" hidden><button class="btn sm" data-act="add-scad">Aggiungi scadenza</button></h2>
   <label class="row" style="gap:8px;margin:0 0 10px"><input type="checkbox" id="f24pag" checked> Gli F24 che carico sono già pagati (quietanze): registrali come spese pagate</label>
   ${ui.logF&&ui.logF.length?`<ul class="log">${ui.logF.map(l=>`<li>${pill(l.k==='bad'?'Errore':l.k==='good'?'Fatto':'Info',l.k)} ${esc(l.t)}</li>`).join('')}</ul>`:''}
-  ${list.length?`<div class="tw"><table><thead><tr><th>Data</th><th>Scadenza</th><th>Tipo</th><th class="n">Importo</th><th>Stato</th><th></th></tr></thead><tbody>
-  ${list.map(x=>`<tr><td>${dt(x.data)}</td><td>${esc(x.titolo)}</td><td>${esc(TIPI[x.tipo]||'Altro')}</td><td class="n">${num(x.importo)?eur0(x.importo):'—'}</td><td>${st(x)}</td>
-  <td><div class="acts"><button class="btn sm" data-act="paid-scad" data-id="${x.id}">${x.pagato?'Segna da pagare':'Segna pagata'}</button><button class="btn sm" data-act="edit-scad" data-id="${x.id}">Modifica</button>${delBtn('scad',x.id)}</div></td></tr>`).join('')}</tbody></table></div>`
+  ${list.length?(()=>{
+    const gr={};list.forEach(x=>{const m=(x.data||'').slice(0,7)||'0000-00';(gr[m]=gr[m]||[]).push(x)});
+    const mt=t0.slice(0,7),m2=iso(new Date(+t0.slice(0,4),+t0.slice(5,7)+1,1)).slice(0,7);
+    ui.scadM=ui.scadM||{};
+    const row=x=>`<tr><td>${dt(x.data)}</td><td>${esc(x.titolo)}</td><td>${esc(TIPI[x.tipo]||'Altro')}</td><td class="n">${num(x.importo)?eur0(x.importo):'—'}</td><td>${st(x)}</td>
+  <td><div class="acts"><button class="btn sm" data-act="paid-scad" data-id="${x.id}">${x.pagato?'Segna da pagare':'Segna pagata'}</button><button class="btn sm" data-act="edit-scad" data-id="${x.id}">Modifica</button>${delBtn('scad',x.id)}</div></td></tr>`;
+    const mesi=Object.keys(gr).sort(),anni={};mesi.forEach(m=>(anni[m.slice(0,4)]=anni[m.slice(0,4)]||[]).push(m));
+    const mdet=m=>{
+      const g=gr[m],aperti=g.filter(x=>!x.pagato),scad=aperti.filter(x=>x.data<t0).length,tot=sum(aperti,x=>num(x.importo));
+      const def=m<mt?aperti.length>0:m<=m2;
+      const op=ui.scadM[m]!==undefined?ui.scadM[m]:def;
+      const lab=m==='0000-00'?'Senza data':mLab(m).replace(/^./,c=>c.toUpperCase());
+      return `<details class="mese" data-m="${m}"${op?' open':''}><summary><b>${lab}</b><span class="sub">${g.length} ${g.length===1?'scadenza':'scadenze'}</span><span class="mt">${aperti.length?`<b>${eur0(tot)}</b> da pagare`:'tutto pagato'}${scad?` ${pill(scad+' scadut'+(scad===1?'a':'e'),'bad')}`:''}${m===mt?` ${pill('Mese corrente','info')}`:''}</span></summary>
+      <div class="tw"><table><thead><tr><th>Data</th><th>Scadenza</th><th>Tipo</th><th class="n">Importo</th><th>Stato</th><th></th></tr></thead><tbody>${g.map(row).join('')}</tbody></table></div></details>`};
+    const ay=Object.keys(anni).sort();
+    if(ay.length<2)return mesi.map(mdet).join('');
+    return ay.map(y=>{const ms=anni[y],all=ms.reduce((a,m)=>a.concat(gr[m]),[]),ap=all.filter(x=>!x.pagato),k='Y'+y;
+      const def=y<=m2.slice(0,4)&&(ap.length>0||y===mt.slice(0,4)),op=ui.scadM[k]!==undefined?ui.scadM[k]:def;
+      return `<details class="anno" data-m="${k}"${op?' open':''}><summary><b>${y}</b><span class="sub">${all.length} scadenze</span><span class="mt">${ap.length?`<b>${eur0(sum(ap,x=>num(x.importo)))}</b> da pagare`:'tutto pagato'}</span></summary>${ms.map(mdet).join('')}</details>`}).join('')})()
   :`<div class="empty"><h3>Nessuna scadenza</h3><span>Genera le scadenze fiscali ordinarie di una SRL, poi inserisci gli importi stimati. Aggiungi a mano rate di finanziamenti e leasing.</span></div>`}
   <p class="note">Date ordinarie per una SRL con anno solare in contabilità ordinaria, con liquidazione IVA ${cfg().iva==='mens'?'mensile':'trimestrale'} (si cambia in Impostazioni). Se cadono in un festivo slittano al primo giorno lavorativo. Gli importi li stimi tu o il commercialista: a zero restano in elenco ma non entrano nella previsione. Ritenute e INPS mensili mettile qui come rata o nei costi fissi, non in entrambi.</p></div>`;
 }
 
+document.addEventListener('toggle',e=>{const d=e.target;if(d&&d.dataset&&d.dataset.m){ui.scadM=ui.scadM||{};ui.scadM[d.dataset.m]=d.open}},true);
 /* ---------- accessi capocantiere (app Rapportini) ---------- */
 async function loadCapi(){
   try{const {data,error}=await window.GEI_SB.from('capi').select('*').order('creato');if(error)throw error;ui.capi=data||[];ui.capiErr=''}
