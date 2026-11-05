@@ -949,9 +949,9 @@ async function salvaLavori(c,rows,sost){
 
 /* ---------- lavorazioni da PDF / foto del computo (senza prezzi) ---------- */
 const UM_RE='(?:corpo|a corpo|mq|mc|ml|m|punti|punto|cad\\.?|cadauno|n\\.?|kg|q\\.li|ore|h)';
-function parseComputo(txt){
+function parseComputo(txt,noQ){
   const fasi=[],voci=[];let fase='',cur=null;
-  const QTA=new RegExp('\\s+\\d+(?:[.,]\\d+)?\\s*'+UM_RE+'\\s*$','i'),SOLO=new RegExp('^\\d+(?:[.,]\\d+)?\\s*'+UM_RE+'$','i');
+  const QTA=noQ?/(?!)/:new RegExp('\\s+\\d+(?:[.,]\\d+)?\\s*'+UM_RE+'\\s*$','i'),SOLO=new RegExp('^\\d+(?:[.,]\\d+)?\\s*'+UM_RE+'$','i');
   const RUMORE=/^(cod\.?|descrizione|quantit[àa]|u\.?\s*m\.?|dettaglio lavorazioni|computo metrico|committente|impresa|pag(ina)?\b|\d+\s*\/\s*\d+$)/i;
   const pulisci=t=>t.replace(/[|¦]+/g,' ').replace(/\s{2,}/g,' ').trim();
   for(let raw of txt.split(/\r?\n/)){
@@ -966,31 +966,114 @@ function parseComputo(txt){
   const cap=t=>t.charAt(0).toUpperCase()+t.slice(1).toLowerCase();
   return voci.map(v=>({cod:v.cod,fase:cap(v.fase||''),nome:v.parti.join(' ').replace(/\s+([,.;:])/g,'$1').trim()})).filter(v=>v.nome);
 }
-async function ocrImmagine(img){
+/* Trova le righe della tabella del computo anche su una foto storta e ritaglia la colonna «Descrizione» di ogni riga. */
+function bandeTabella(cv){
+  const W=cv.width,H=cv.height,src=cv.getContext('2d').getImageData(0,0,W,H).data;
+  /* binarizzazione adattiva: la luce di una foto non è mai uniforme */
+  const g=new Float32Array(W*H);for(let i=0;i<W*H;i++)g[i]=src[4*i]*.3+src[4*i+1]*.59+src[4*i+2]*.11;
+  const iw=W+1,I=new Float64Array(iw*(H+1));
+  for(let y=0;y<H;y++){let row=0;for(let x=0;x<W;x++){row+=g[y*W+x];I[(y+1)*iw+x+1]=I[y*iw+x+1]+row}}
+  const r=Math.max(8,Math.round(W/70)),b=new Uint8Array(W*H);
+  for(let y=0;y<H;y++){const ya=Math.max(0,y-r),yb=Math.min(H,y+r+1);for(let x=0;x<W;x++){
+    const xa=Math.max(0,x-r),xb=Math.min(W,x+r+1),m=(I[yb*iw+xb]-I[ya*iw+xb]-I[yb*iw+xa]+I[ya*iw+xa])/((xb-xa)*(yb-ya));
+    b[y*W+x]=(g[y*W+x]<m-14&&g[y*W+x]<190)?1:0}}
+  const bc=document.createElement('canvas');bc.width=W;bc.height=H;const bx=bc.getContext('2d'),id=bx.createImageData(W,H);
+  for(let i=0;i<W*H;i++){const v=b[i]?0:255;id.data[4*i]=id.data[4*i+1]=id.data[4*i+2]=v;id.data[4*i+3]=255}
+  bx.putImageData(id,0,0);
+  /* le righe della tabella: tratti scuri continui in molte "fette" della pagina (tollerano una leggera inclinazione) */
+  const grp=(arr,min)=>{const o=[];let s=-1;for(let i=0;i<=arr.length;i++){const on=i<arr.length&&arr[i];if(on&&s<0)s=i;if(!on&&s>=0){o.push((s+i-1)/2);s=-1}}
+    const m=[];o.forEach(p=>{if(m.length&&p-m[m.length-1]<min)m[m.length-1]=(m[m.length-1]+p)/2;else m.push(p)});return m};
+  const dens=(xa,xb,y)=>{let n=0;for(let x=xa;x<xb;x++)if(b[y*W+x]||b[(y-1)*W+x]||b[(y+1)*W+x])n++;return n/(xb-xa)};
+  /* 1) righe nella fascia centrale della pagina */
+  const cxa=Math.floor(W*0.42),cxb=Math.floor(W*0.58),on=Array.from({length:H},(_,y)=>y>1&&y<H-2&&dens(cxa,cxb,y)>=0.45);
+  const hl0=grp(on,6);
+  if(hl0.length<4)return null;
+  const y0=Math.round(hl0[0]),y1=Math.round(hl0[hl0.length-1]),NV=10,votiX=new Int16Array(W);
+  /* 2) colonne: tratti scuri verticali lungo la tabella */
+  for(let s=0;s<NV;s++){const ya=y0+Math.floor((y1-y0)*s/NV),yb=y0+Math.floor((y1-y0)*(s+1)/NV),onx=new Uint8Array(W);
+    for(let x=1;x<W-1;x++){let n=0;for(let y=ya;y<yb;y++)if(b[y*W+x]||b[y*W+x-1]||b[y*W+x+1])n++;onx[x]=n>=(yb-ya)*0.75?1:0}
+    for(let x=0;x<W;x++){let hit=0;for(let k=-5;k<=5&&!hit;k++)if(x+k>=0&&x+k<W&&onx[x+k])hit=1;votiX[x]+=hit}}
+  const vl=grp(Array.from(votiX,v=>v>=6),6);
+  const xL=vl.length?vl[0]:W*0.08,xR=vl.length?vl[vl.length-1]:W*0.92;
+  let c0,c1;
+  if(vl.length>=5){c0=Math.round(vl[1]);c1=Math.round(vl[vl.length-3])}else{c0=Math.round(xL+(xR-xL)*0.1);c1=Math.round(xL+(xR-xL)*0.78)}
+  c0+=2;c1-=4;
+  /* 3) seguo ogni riga verso sinistra e destra (le foto sono sempre un po' storte) */
+  const ST=30,xs=[];for(let x=c0;x<=c1;x+=ST)xs.push(x);xs.push(c1);
+  const mid=Math.round(W/2),trace=y=>{const Y=new Float32Array(xs.length);let im=0;xs.forEach((x,i)=>{if(Math.abs(x-mid)<Math.abs(xs[im]-mid))im=i});
+    const walk=(from,to,step)=>{let yp=y;for(let i=from;i!==to+step;i+=step){let bestY=Math.round(yp),bn=-1;
+      for(let dy=-9;dy<=9;dy++){const yy=Math.round(yp)+dy;if(yy<1||yy>=H-1)continue;const n=dens(xs[i],Math.min(W,xs[i]+ST),yy);if(n>bn+1e-9){bn=n;bestY=yy}}
+      if(bn>=0.85){yp=bestY;cov++}Y[i]=yp}};
+    let cov=0;walk(im,0,-1);walk(im,xs.length-1,1);Y.cov=cov/(xs.length+1);return Y};
+  let tr=hl0.map(trace).filter(Y=>Y.cov>=0.9);
+  tr=tr.filter((Y,i)=>!i||Math.abs(Y[0]-tr[i-1][0])>8||Math.abs(Y[Y.length-1]-tr[i-1][Y.length-1])>8);
+  if(tr.length<4)return null;
+  const out=[];
+  for(let i=0;i+1<tr.length;i++){
+    const hmin=Math.min(...tr[i+1].map((v,k)=>v-tr[i][k]));if(hmin<H*0.012+6)continue;
+    const w=c1-c0,hh=Math.round(Math.max(...tr[i+1].map((v,k)=>v-tr[i][k]))),k=document.createElement('canvas'),S=2;k.width=(w+24)*S;k.height=(hh+16)*S;
+    const kx=k.getContext('2d');kx.fillStyle='#fff';kx.fillRect(0,0,k.width,k.height);kx.imageSmoothingQuality='high';
+    for(let j=0;j+1<xs.length;j++){const xa=xs[j],xb=xs[j+1];if(xb<=xa)continue;
+      const ta=tr[i][j]+3,tb=tr[i+1][j]-3,hs=tb-ta;if(hs<4)continue;
+      kx.drawImage(bc,xa,ta,xb-xa,hs,(12+xa-c0)*S,8*S,(xb-xa)*S,hs*S)}
+    out.push(k)}
+  return {bande:out,vl,hl:tr.map(Y=>Y[0])};
+}
+
+async function tesseractLib(){
   if(!window.Tesseract)await new Promise((ok,ko)=>{const el=document.createElement('script');el.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';el.onload=ok;el.onerror=()=>ko(new Error('lettura del testo dalle immagini non disponibile'));document.head.appendChild(el)});
+}
+async function ocrImmagine(img){
+  await tesseractLib();
   const r=await window.Tesseract.recognize(img,'ita');
   return r.data.text||'';
 }
+/* tabella a righe: ogni riga viene letta da sola, così codici, quantità e righe vicine non si confondono */
+async function ocrTabella(cv){
+  const bt=bandeTabella(cv);if(!bt||bt.bande.length<4)return null;
+  await tesseractLib();
+  const w=await window.Tesseract.createWorker('ita');
+  try{
+    await w.setParameters({tessedit_pageseg_mode:'6'});
+    let nf=0,nv=0,out='';
+    for(let i=0;i<bt.bande.length;i++){
+      toast('Leggo la riga '+(i+1)+' di '+bt.bande.length+'…');
+      let t=((await w.recognize(bt.bande[i])).data.text||'').replace(/[|¦_~=]+/g,' ').replace(/\s*\n\s*/g,' ').replace(/\s{2,}/g,' ').trim();
+      t=t.replace(/^[^A-Za-zÀ-ÿ0-9("“]+/,'').trim();
+      if(!t||/^descrizione\b/i.test(t))continue;
+      const tf=t.replace(/!/g,'I').replace(/^[a-z]{1,2}(?=[A-ZÀ-Ý])/,''),L=tf.replace(/[^A-Za-zÀ-ÿ]/g,''),up=L.replace(/[^A-ZÀ-Ý]/g,'');
+      if(L.length>=4&&up.length>=L.length*0.6&&tf.length<70){const fn=tf.split(/\s+/).filter(w=>/^[A-ZÀ-Ý]+$/.test(w)).join(' ');if(fn.length>=4){nf++;nv=0;out+=nf+' '+fn+'\n';continue}}
+      t=t.replace(/(\s+[^A-Za-zÀ-ÿ0-9)."”]{1,3})+$/,'').replace(/([.,;)])\s+[a-zà-ÿ]{1,3}$/,'$1').replace(/,$/,'.').trim();
+      nv++;out+=(nf||1)+'.'+nv+' '+t+'\n'
+    }
+    return out;
+  }finally{try{await w.terminate()}catch(e){}}
+}
+async function canvasDa(file,maxW){
+  const bm=await createImageBitmap(file),k=Math.min(1,maxW/bm.width),cv=document.createElement('canvas');
+  cv.width=Math.round(bm.width*k);cv.height=Math.round(bm.height*k);cv.getContext('2d').drawImage(bm,0,0,cv.width,cv.height);return cv;
+}
 async function testoDaFile(file){
   const isPdf=/pdf$/i.test(file.type)||/\.pdf$/i.test(file.name);
-  if(!isPdf)return ocrImmagine(file);
+  if(!isPdf){const cv=await canvasDa(file,1600);const t=await ocrTabella(cv);return t?{t,noQ:true}:{t:await ocrImmagine(cv),noQ:false}}
   let t=await pdfText(file);
-  if(t.replace(/\s/g,'').length>60&&/\d\.\d/.test(t))return t;      // PDF con testo vero
+  if(t.replace(/\s/g,'').length>60&&/\d\.\d/.test(t))return {t,noQ:false};      // PDF con testo vero
   const pdf=await window.pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
-  let out='';
+  let out='',noQ=true;
   for(let p=1;p<=pdf.numPages;p++){                                  // scansione: rendo la pagina e leggo il testo
     toast('Leggo la pagina '+p+' di '+pdf.numPages+'…');
-    const pg=await pdf.getPage(p),vp=pg.getViewport({scale:2.4}),cv=document.createElement('canvas');
-    cv.width=vp.width;cv.height=vp.height;await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
-    out+=await ocrImmagine(cv)+'\n';
+    const pg=await pdf.getPage(p),vp=pg.getViewport({scale:1600/pg.getViewport({scale:1}).width}),cv=document.createElement('canvas');
+    cv.width=Math.round(vp.width);cv.height=Math.round(vp.height);await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+    const t=await ocrTabella(cv);
+    if(t)out+=t+'\n';else{noQ=false;out+=await ocrImmagine(cv)+'\n'}
   }
-  return out;
+  return {t:out,noQ};
 }
 async function importaLavPdf(file,cid){
   const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
   try{
     toast('Leggo il documento…');
-    const voci=parseComputo(await testoDaFile(file));
+    const rd=await testoDaFile(file),voci=parseComputo(rd.t,rd.noQ);
     if(!voci.length){toast('Non riconosco voci numerate (1.1, 1.2…). Prova con l\'elenco incollato o con Excel.');return}
     const fasi=[...new Set(voci.map(v=>v.fase).filter(Boolean))];
     modal('Controlla le lavorazioni lette',`<p class="note" style="margin-top:0">Ho letto <b>${voci.length}</b> voci${fasi.length?` in <b>${fasi.length}</b> fasi`:''}. Correggi i testi o togli la spunta a quelle da escludere.</p>
