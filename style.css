@@ -299,3 +299,9 @@ details.anno[open]>summary::before{content:'▾'}
 details.anno>summary .mt{margin-left:auto;font-size:14px;color:var(--ink-2)}
 details.anno>summary .mt b{color:var(--ink)}
 details.anno>details.mese{margin-left:10px}
+
+.lavrev{max-height:46vh;overflow:auto;margin:6px 0 10px;border:1px solid var(--line);border-radius:10px;padding:4px 8px}
+.lavrev .lr{display:flex;gap:8px;align-items:center;padding:5px 0;border-top:1px solid var(--line)}
+.lavrev .lr:first-child{border-top:0}
+.lavrev .lr input[type=checkbox]{flex:none;width:20px;height:20px}
+.lavrev .lr input:not([type=checkbox]){flex:1;min-width:0}

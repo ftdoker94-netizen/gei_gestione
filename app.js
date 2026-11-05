@@ -879,7 +879,7 @@ function mRate(cid){
 }
 function tLav(c,k,m){
   const d=ui.lavD||today(),x=salDisp(c,k,d),L=x?x.L:lavStato(c,d);
-  const nuovo=`<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="lav-upd" data-cid="${c.id}">Aggiorna avanzamento</button><button class="btn" data-act="add-lav" data-cid="${c.id}">Nuova lavorazione</button><button class="btn" data-act="lav-imp" data-cid="${c.id}">Importa da Excel / elenco</button>${(c.rate||[]).length?'':`<button class="btn" data-act="lav-sogl" data-cid="${c.id}">Soglia SAL</button>`}<input type="file" id="lavin" accept=".xlsx,.xls,.csv" data-cid="${c.id}" hidden></div>`;
+  const nuovo=`<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="lav-upd" data-cid="${c.id}">Aggiorna avanzamento</button><button class="btn" data-act="add-lav" data-cid="${c.id}">Nuova lavorazione</button><button class="btn" data-act="lav-imp" data-cid="${c.id}">Importa da PDF, foto, Excel</button>${(c.rate||[]).length?'':`<button class="btn" data-act="lav-sogl" data-cid="${c.id}">Soglia SAL</button>`}<input type="file" id="lavin" accept=".xlsx,.xls,.csv,.pdf,image/*" data-cid="${c.id}" hidden></div>`;
   if(!L.voci.length)return nuovo+boxRate(c,k)+`<div class="empty"><h3>Nessuna lavorazione</h3><span>Inserisci le voci del cantiere con il loro importo (o importale dal computo in Excel). Poi aggiorni le percentuali giorno per giorno e l'app ti dice quando chiedere il SAL.</span></div>`;
   const diff=L.tot&&c.contratto&&Math.abs(L.tot-num(c.contratto))>1;
   return `${m?'':bannerSal(c,k)}${nuovo}${boxRate(c,k)}
@@ -934,7 +934,7 @@ function leggiElenco(txt){
 }
 function mLavImp(cid){
   const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
-  modal('Importa lavorazioni',`<div class="fields"><label class="f full"><span>Incolla l'elenco: una lavorazione per riga, «nome; importo»</span><textarea name="txt" rows="8" placeholder="Demolizioni; 4200&#10;Impianto idrico; 5900&#10;Impianto elettrico; 8500"></textarea></label><div class="f full"><button type="button" class="btn" id="lav-xl">Oppure scegli il computo in Excel…</button></div>${F.c('sost','Sostituisci le lavorazioni già presenti',false,{cls:'full'})}</div><p class="hint">Dal file Excel l'app legge le colonne «Macro Fase», «Descrizione» e il costo/importo totale della voce, e ti fa scegliere se raggruppare per fase.</p>`,
+  modal('Importa lavorazioni',`<div class="fields"><label class="f full"><span>Incolla l'elenco: una lavorazione per riga, «nome; importo»</span><textarea name="txt" rows="8" placeholder="Demolizioni; 4200&#10;Impianto idrico; 5900&#10;Impianto elettrico; 8500"></textarea></label><div class="f full"><button type="button" class="btn" id="lav-xl">Oppure scegli il computo (PDF, foto o Excel)…</button></div>${F.c('sost','Sostituisci le lavorazioni già presenti',false,{cls:'full'})}</div><p class="hint">Dal file Excel l'app legge le colonne «Macro Fase», «Descrizione» e il costo/importo totale della voce, e ti fa scegliere se raggruppare per fase.</p>`,
   async d=>{
     const rows=leggiElenco(d.txt||'');if(!rows.length){toast('Nessuna riga valida');return false}
     await salvaLavori(c,rows,!!d.sost);
@@ -945,6 +945,68 @@ async function salvaLavori(c,rows,sost){
   let o=sost?0:lavDi(c).length;
   for(const r of rows)await put('lav',{cantiereId:c.id,nome:r.nome,importo:Math.round(r.importo*100)/100,ordine:++o,storico:[]},true);
   render();toast(rows.length+' lavorazioni inserite');
+}
+
+/* ---------- lavorazioni da PDF / foto del computo (senza prezzi) ---------- */
+const UM_RE='(?:corpo|a corpo|mq|mc|ml|m|punti|punto|cad\\.?|cadauno|n\\.?|kg|q\\.li|ore|h)';
+function parseComputo(txt){
+  const fasi=[],voci=[];let fase='',cur=null;
+  const QTA=new RegExp('\\s+\\d+(?:[.,]\\d+)?\\s*'+UM_RE+'\\s*$','i'),SOLO=new RegExp('^\\d+(?:[.,]\\d+)?\\s*'+UM_RE+'$','i');
+  const RUMORE=/^(cod\.?|descrizione|quantit[àa]|u\.?\s*m\.?|dettaglio lavorazioni|computo metrico|committente|impresa|pag(ina)?\b|\d+\s*\/\s*\d+$)/i;
+  const pulisci=t=>t.replace(/[|¦]+/g,' ').replace(/\s{2,}/g,' ').trim();
+  for(let raw of txt.split(/\r?\n/)){
+    let l=pulisci(raw);if(!l)continue;
+    let m=l.match(/^(\d{1,2})\.(\d{1,2})\s+(.+)$/);
+    if(m){cur={cod:m[1]+'.'+m[2],fase,parti:[]};voci.push(cur);l=m[3].replace(QTA,'').trim();if(l)cur.parti.push(l);continue}
+    m=l.match(/^(\d{1,2})\s+(\S.*)$/);
+    if(m&&m[2]===m[2].toUpperCase()&&/[A-ZÀ-Ý]{3}/.test(m[2])&&!SOLO.test(m[2])){fase=m[2].replace(QTA,'').trim();if(!fasi.includes(fase))fasi.push(fase);cur=null;continue}
+    if(!cur||RUMORE.test(l)||SOLO.test(l))continue;
+    l=l.replace(QTA,'').trim();if(l)cur.parti.push(l);
+  }
+  const cap=t=>t.charAt(0).toUpperCase()+t.slice(1).toLowerCase();
+  return voci.map(v=>({cod:v.cod,fase:cap(v.fase||''),nome:v.parti.join(' ').replace(/\s+([,.;:])/g,'$1').trim()})).filter(v=>v.nome);
+}
+async function ocrImmagine(img){
+  if(!window.Tesseract)await new Promise((ok,ko)=>{const el=document.createElement('script');el.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';el.onload=ok;el.onerror=()=>ko(new Error('lettura del testo dalle immagini non disponibile'));document.head.appendChild(el)});
+  const r=await window.Tesseract.recognize(img,'ita');
+  return r.data.text||'';
+}
+async function testoDaFile(file){
+  const isPdf=/pdf$/i.test(file.type)||/\.pdf$/i.test(file.name);
+  if(!isPdf)return ocrImmagine(file);
+  let t=await pdfText(file);
+  if(t.replace(/\s/g,'').length>60&&/\d\.\d/.test(t))return t;      // PDF con testo vero
+  const pdf=await window.pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  let out='';
+  for(let p=1;p<=pdf.numPages;p++){                                  // scansione: rendo la pagina e leggo il testo
+    toast('Leggo la pagina '+p+' di '+pdf.numPages+'…');
+    const pg=await pdf.getPage(p),vp=pg.getViewport({scale:2.4}),cv=document.createElement('canvas');
+    cv.width=vp.width;cv.height=vp.height;await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+    out+=await ocrImmagine(cv)+'\n';
+  }
+  return out;
+}
+async function importaLavPdf(file,cid){
+  const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
+  try{
+    toast('Leggo il documento…');
+    const voci=parseComputo(await testoDaFile(file));
+    if(!voci.length){toast('Non riconosco voci numerate (1.1, 1.2…). Prova con l\'elenco incollato o con Excel.');return}
+    const fasi=[...new Set(voci.map(v=>v.fase).filter(Boolean))];
+    modal('Controlla le lavorazioni lette',`<p class="note" style="margin-top:0">Ho letto <b>${voci.length}</b> voci${fasi.length?` in <b>${fasi.length}</b> fasi`:''}. Correggi i testi o togli la spunta a quelle da escludere.</p>
+    <div class="lavrev">${voci.map((v,i)=>`<div class="lr"><input type="checkbox" name="s${i}" checked><span class="sub">${esc(v.cod)}</span><input name="n${i}" value="${esc(v.nome)}"></div>`).join('')}</div>
+    <div class="fields">${fasi.length?F.c('grp','Raggruppa per fase (consigliato: poche lavorazioni da aggiornare ogni giorno)',true,{cls:'full'}):''}${F.c('sost','Sostituisci le lavorazioni già presenti',false,{cls:'full'})}</div>
+    <p class="hint">Non servono prezzi: il peso di ogni lavorazione è uguale (per fase, in proporzione al numero di voci) e ripartito sul contratto. Se vuoi pesi diversi li cambi poi con «Modifica».</p>`,
+    async d=>{
+      const sel=voci.map((v,i)=>({...v,nome:(d['n'+i]||'').trim(),on:d['s'+i]})).filter(v=>v.on&&v.nome);
+      if(!sel.length){toast('Nessuna voce selezionata');return false}
+      let rows;
+      if(d.grp&&fasi.length){const m={};sel.forEach(v=>{const k=v.fase||v.nome;m[k]=(m[k]||0)+1});rows=Object.entries(m).map(([nome,w])=>({nome,w}))}
+      else rows=sel.map(v=>({nome:v.nome,w:1}));
+      const W=sum(rows,r=>r.w),tot=num(c.contratto)||W;
+      await salvaLavori(c,rows.map(r=>({nome:r.nome,importo:tot*r.w/W})),!!d.sost);
+    },{save:'Importa'});
+  }catch(e){toast('Lettura non riuscita: '+e.message)}
 }
 async function importaLavExcel(file,cid){
   const c=S.cantieri.find(y=>y.id===cid);if(!c)return;
@@ -1243,12 +1305,15 @@ function vCassa(){
 
 /* ---------- F24 in PDF ---------- */
 const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',PDFW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-async function pdfText(file){
+async function pdfLib(){
   if(!window.pdfjsLib){
     await new Promise((ok,ko)=>{const el=document.createElement('script');el.src=PDFJS;el.onload=ok;el.onerror=()=>ko(new Error('lettura PDF non disponibile'));document.head.appendChild(el)});
     const wc=await (await fetch(PDFW)).text();
     window.pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([wc],{type:'text/javascript'}));
   }
+}
+async function pdfText(file){
+  await pdfLib();
   const pdf=await window.pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
   let out='';
   for(let p=1;p<=pdf.numPages;p++){
@@ -1493,7 +1558,7 @@ document.addEventListener('change',e=>{
   if(t.id==='f24in'&&t.files&&t.files.length){importaF24(Array.from(t.files),$('#f24pag')?$('#f24pag').checked:true);t.value=''}
   if(t.id==='cin'&&t.files&&t.files.length){importaClienti(t.files[0]);t.value=''}
   if(t.id==='catf'){ui.catFilter=t.value;render()}
-  if(t.id==='lavin'&&t.files&&t.files.length){importaLavExcel(t.files[0],t.dataset.cid);t.value=''}
+  if(t.id==='lavin'&&t.files&&t.files.length){const f=t.files[0];(/\.(pdf|jpe?g|png|heic|webp)$/i.test(f.name)||/^(image\/|application\/pdf)/.test(f.type)?importaLavPdf:importaLavExcel)(f,t.dataset.cid);t.value=''}
   if(t.id==='lav-d'){ui.lavD=t.value||'';render()}
   if(t.id==='per-da'){ui.da=t.value||ui.da;render()}
   if(t.id==='per-a'){ui.a=t.value||ui.a;render()}
