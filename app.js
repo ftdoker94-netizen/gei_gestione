@@ -801,12 +801,25 @@ function apriPresenze(da,a,op){
 /* ---------- lavorazioni e avanzamento ---------- */
 const lavDi=c=>S.lav.filter(x=>x.cantiereId===c.id).sort((a,b)=>(num(a.ordine)-num(b.ordine))||String(a.nome).localeCompare(String(b.nome)));
 const pctAt=(l,d)=>{let p=0;(l.storico||[]).slice().sort((a,b)=>a.d.localeCompare(b.d)).forEach(e=>{if(e.d<=d)p=num(e.p)});return p};
+function impLav(c){
+  /* importo di ogni lavorazione: dalla rata del piano SAL a cui è collegata (diviso tra le sue voci); le non collegate si dividono il resto del contratto */
+  const L=lavDi(c),con=num(c.contratto),rate=c.rate||[],out={};
+  const usate=new Set();let coperto=0;
+  rate.forEach(r=>{const vv=L.filter(l=>l.rataId===r.id);if(!vv.length)return;const ri=con*num(r.pct)/100;vv.forEach(l=>{out[l.id]=ri/vv.length;usate.add(l.id)});coperto+=ri});
+  const libere=L.filter(l=>!usate.has(l.id));
+  const resto=rate.length&&usate.size?Math.max(0,con-coperto):con;
+  libere.forEach(l=>{out[l.id]=libere.length?resto/libere.length:0});
+  return out;
+}
 function lavStato(c,d){
-  const voci=lavDi(c).map(l=>({l,p:pctAt(l,d)}));
-  const tot=sum(voci,v=>num(v.l.importo)),pes=sum(voci,v=>num(v.l.importo)*v.p/100);
-  const avanz=tot?pes/tot:0,base=num(c.contratto)||tot;
-  voci.forEach(v=>{v.mat=tot?num(v.l.importo)/tot*base*v.p/100:0;v.imp=tot?num(v.l.importo)/tot*base:0});
-  return {voci,tot,avanz,mat:avanz*base,base};
+  const IM=impLav(c);
+  const voci=lavDi(c).map(l=>({l,p:pctAt(l,d),w:IM[l.id]||0}));
+  const tot=sum(voci,v=>v.w),base=num(c.contratto)||tot;
+  const W=tot||voci.length;
+  const pes=sum(voci,v=>(tot?v.w:1)*v.p/100);
+  const avanz=W?pes/W:0;
+  voci.forEach(v=>{v.imp=v.w;v.mat=v.w*v.p/100});
+  return {voci,tot,avanz,mat:voci.length?sum(voci,v=>v.mat):0,base};
 }
 function rateStato(c,d){
   d=d||today();
@@ -815,8 +828,8 @@ function rateStato(c,d){
   const diretto=r=>mie.find(x=>x.id===r.salId)||mie.find(x=>x.rataId===r.id);
   rate.forEach(r=>{const x=diretto(r);if(x)taken.add(x.id)});
   return rate.map(r=>{
-    const vv=lavDi(c).filter(l=>l.rataId===r.id),tot=sum(vv,l=>num(l.importo));
-    const p=vv.length?(tot?sum(vv,l=>num(l.importo)*pctAt(l,d))/tot:sum(vv,l=>pctAt(l,d))/vv.length):(r.manuale&&r.manuale<=d?100:0);
+    const vv=lavDi(c).filter(l=>l.rataId===r.id);
+    const p=vv.length?sum(vv,l=>pctAt(l,d))/vv.length:(r.manuale&&r.manuale<=d?100:0);
     const importo=imp(r);
     let sal=diretto(r),auto=false;
     if(!sal&&r.salId!=='-'){const stessi=rate.filter(y=>Math.abs(imp(y)-importo)<1).length,cand=mie.filter(x=>!taken.has(x.id)&&Math.abs(num(x.importo)-importo)<1);if(stessi===1&&cand.length){cand.sort((a,b)=>num(a.n)-num(b.n));sal=cand[0];taken.add(sal.id);auto=true}}
@@ -880,24 +893,23 @@ function mRate(cid){
 function tLav(c,k,m){
   const d=ui.lavD||today(),x=salDisp(c,k,d),L=x?x.L:lavStato(c,d);
   const nuovo=`<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="lav-upd" data-cid="${c.id}">Aggiorna avanzamento</button><button class="btn" data-act="add-lav" data-cid="${c.id}">Nuova lavorazione</button><button class="btn" data-act="lav-imp" data-cid="${c.id}">Importa da PDF, foto, Excel</button>${(c.rate||[]).length?'':`<button class="btn" data-act="lav-sogl" data-cid="${c.id}">Soglia SAL</button>`}<input type="file" id="lavin" accept=".xlsx,.xls,.csv,.pdf,image/*" data-cid="${c.id}" hidden></div>`;
-  if(!L.voci.length)return nuovo+boxRate(c,k)+`<div class="empty"><h3>Nessuna lavorazione</h3><span>Inserisci le voci del cantiere con il loro importo (o importale dal computo in Excel). Poi aggiorni le percentuali giorno per giorno e l'app ti dice quando chiedere il SAL.</span></div>`;
-  const diff=L.tot&&c.contratto&&Math.abs(L.tot-num(c.contratto))>1;
+  if(!L.voci.length)return nuovo+boxRate(c,k)+`<div class="empty"><h3>Nessuna lavorazione</h3><span>Inserisci le voci del cantiere (o importale da PDF, foto o Excel) e collegale alle rate del Piano dei SAL: l'importo lo prendono dalla rata. Poi aggiorni le percentuali giorno per giorno e l'app ti dice quando chiedere il SAL.</span></div>`;
   return `${m?'':bannerSal(c,k)}${nuovo}${boxRate(c,k)}
   <div class="row" style="margin:18px 0 10px;gap:10px"><label class="f" style="margin:0"><span>Situazione al giorno</span><input type="date" id="lav-d" value="${d}"></label>${d!==today()?`<button class="btn sm" data-act="lav-oggi">Oggi</button>`:''}</div>
-  ${m?'':`<div class="kpis k6 sm">${kpi('Avanzamento lavori',pct(L.avanz*100),'media pesata sulle voci','--s1')}${kpi('Maturato da lavorazioni',eur0(L.mat),'su '+eur0(L.base),'--s2')}${kpi('Già nei SAL',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s3')}${kpi('Disponibile per un SAL',eur0(Math.max(0,x.disp)),x.rate?(x.pronto?x.pronte.length+' rate maturate':'nessuna rata maturata'):(x.pronto?'soglia raggiunta':'soglia '+(x.tp==='importo'?eur0(x.soglia):pct(x.tv,0)+' = '+eur0(x.soglia))),'--s4')}</div>`}
+  ${m?'':`<div class="kpis k6 sm">${kpi('Avanzamento lavori',pct(L.avanz*100),'media sulle voci','--s1')}${kpi('Maturato da lavorazioni',eur0(L.mat),'su '+eur0(L.base),'--s2')}${kpi('Già nei SAL',eur0(k.maturato),pct(k.avanz*100)+' del contratto','--s3')}${kpi('Disponibile per un SAL',eur0(Math.max(0,x.disp)),x.rate?(x.pronto?x.pronte.length+' rate maturate':'nessuna rata maturata'):(x.pronto?'soglia raggiunta':'soglia '+(x.tp==='importo'?eur0(x.soglia):pct(x.tv,0)+' = '+eur0(x.soglia))),'--s4')}</div>`}
   <div class="sec"><h2>Lavorazioni al ${dt(d)}</h2><div class="tw"><table><thead><tr><th>Lavorazione</th><th class="n">Importo</th><th style="min-width:150px">Avanzamento</th><th class="n">Maturato</th><th>Aggiornata</th><th></th></tr></thead><tbody>
   ${L.voci.map(v=>{const ult=(v.l.storico||[]).filter(e=>e.d<=d).map(e=>e.d).sort().pop();return `<tr><td>${esc(v.l.nome)}</td><td class="n">${eur0(v.imp)}</td><td><div class="rbar2"><i style="width:${v.p}%"></i></div><b>${pct(v.p,0)}</b></td><td class="n">${eur0(v.mat)}</td><td>${ult?dts(ult):'—'}</td><td><div class="acts"><button class="btn sm" data-act="edit-lav" data-id="${v.l.id}" data-cid="${c.id}">Modifica</button>${delBtn('lav',v.l.id)}</div></td></tr>`}).join('')}
   </tbody><tfoot><tr><td>Totale</td><td class="n">${eur0(L.base)}</td><td><b>${pct(L.avanz*100)}</b></td><td class="n">${eur0(L.mat)}</td><td></td><td></td></tr></tfoot></table></div>
-  ${diff?`<p class="note">Le voci sommano ${eur0(L.tot)}, il contratto è ${eur0(c.contratto)}: gli importi sono riportati in proporzione al contratto.</p>`:''}</div>
+  </div>
   ${chartLav(c)?`<div class="sec"><div class="card"><h2>Avanzamento nel tempo</h2>${chartLav(c)}</div></div>`:''}`;
 }
 function mLavVoce(id,cid){
   const l=S.lav.find(y=>y.id===id)||{};
-  modal(id?'Modifica lavorazione':'Nuova lavorazione',`<div class="fields">${F.t('nome','Lavorazione',l.nome,{req:1,cls:'full',ph:'es. Demolizioni'})}${F.m('importo','Importo / peso (€)',l.importo,{req:1})}${F.t('ordine','Ordine',l.ordine!=null?l.ordine:S.lav.filter(y=>y.cantiereId===cid).length+1,{type:'number'})}${id?F.t('pct','Avanzamento a oggi (%)',pctAt(l,today()),{type:'number',step:'any',inputmode:'decimal',cls:'full'}):''}${((S.cantieri.find(y=>y.id===cid)||{}).rate||[]).length?F.s('rataId','Appartiene alla rata',[['','— nessuna —']].concat(S.cantieri.find(y=>y.id===cid).rate.map(r=>[r.id,r.nome])),l.rataId||'',{cls:'full'}):''}</div><p class="hint">L'importo è il valore della lavorazione nel contratto (il peso sul totale). Se la somma non coincide col contratto, i pesi vengono riportati in proporzione.</p>`,
+  modal(id?'Modifica lavorazione':'Nuova lavorazione',`<div class="fields">${F.t('nome','Lavorazione',l.nome,{req:1,cls:'full',ph:'es. Demolizioni'})}${F.t('ordine','Ordine',l.ordine!=null?l.ordine:S.lav.filter(y=>y.cantiereId===cid).length+1,{type:'number'})}${id?F.t('pct','Avanzamento a oggi (%)',pctAt(l,today()),{type:'number',step:'any',inputmode:'decimal',cls:'full'}):''}${((S.cantieri.find(y=>y.id===cid)||{}).rate||[]).length?F.s('rataId','Appartiene alla rata',[['','— nessuna —']].concat(S.cantieri.find(y=>y.id===cid).rate.map(r=>[r.id,r.nome])),l.rataId||'',{cls:'full'}):''}</div><p class="hint">Non serve inserire un importo: se colleghi la lavorazione a una rata, vale l'importo di quella rata nel Piano dei SAL (diviso tra le sue lavorazioni).</p>`,
   d=>{
     let st=l.storico||[];
     if(id&&d.pct!==''&&d.pct!=null){const p=Math.max(0,Math.min(100,num(d.pct)));if(p!==pctAt(l,today()))st=st.filter(e=>e.d!==today()).concat([{d:today(),p}]).sort((a,b)=>a.d.localeCompare(b.d))}
-    return put('lav',{...l,storico:st,cantiereId:cid,nome:d.nome.trim(),importo:num(d.importo),ordine:num(d.ordine),rataId:d.rataId!=null?d.rataId:(l.rataId||'')});
+    return put('lav',{...l,storico:st,cantiereId:cid,nome:d.nome.trim(),ordine:num(d.ordine),rataId:d.rataId!=null?d.rataId:(l.rataId||'')});
   });
 }
 function mLavUpd(cid){
