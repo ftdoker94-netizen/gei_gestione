@@ -14,7 +14,7 @@ const addDays=(s,n)=>{const d=parse(s)||new Date();d.setDate(d.getDate()+n);retu
 const dt=s=>{const d=parse(s);return d?d.toLocaleDateString('it-IT',{day:'numeric',month:'short',year:'numeric'}):'—'};
 const dts=s=>{const d=parse(s);return d?d.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'}):'—'};
 const today=()=>iso(new Date());
-const num=v=>{const x=parseFloat(v);return isFinite(x)?x:0};
+const num=v=>{if(typeof v==='string'){let t=v.replace(/[€\s]/g,'');if(t.includes(','))t=t.replace(/\./g,'').replace(',','.');else if(/^-?\d{1,3}(\.\d{3})+$/.test(t))t=t.replace(/\./g,'');v=t}const x=parseFloat(v);return isFinite(x)?x:0};
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 const sum=(a,f)=>a.reduce((t,x)=>t+(+f(x)||0),0);
@@ -305,7 +305,7 @@ async function importa(files){
 /* ---------- modali ---------- */
 const F={
  t:(n,l,v,o={})=>`<label class="f ${o.cls||''}"><span>${l}</span><input name="${n}" id="f-${n}" type="${o.type||'text'}" value="${esc(v==null?'':v)}" ${o.req?'required':''} ${o.step?`step="${o.step}"`:''} ${o.ph?`placeholder="${esc(o.ph)}"`:''} ${o.inputmode?`inputmode="${o.inputmode}"`:''}></label>`,
- m:(n,l,v,o={})=>F.t(n,l,v,{type:'number',step:'0.01',inputmode:'decimal',...o}),
+ m:(n,l,v,o={})=>F.t(n,l,v,{type:'text',inputmode:'decimal',...o}),
  s:(n,l,opts,v,o={})=>`<label class="f ${o.cls||''}"><span>${l}</span><select name="${n}" id="f-${n}">${opts.map(([a,b])=>`<option value="${esc(a)}" ${String(a)===String(v)?'selected':''}>${esc(b)}</option>`).join('')}</select></label>`,
  a:(n,l,v,o={})=>`<label class="f ${o.cls||''}"><span>${l}</span><textarea name="${n}" id="f-${n}" rows="3" ${o.ph?`placeholder="${esc(o.ph)}"`:''}>${esc(v==null?'':v)}</textarea></label>`,
  c:(n,l,on,o={})=>`<label class="f chk ${o.cls||''}"><input type="checkbox" name="${n}" id="f-${n}" ${on?'checked':''}><span>${l}</span></label>`
