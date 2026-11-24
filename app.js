@@ -472,11 +472,11 @@ function mScad(id){
     ${F.c('pagato','Già pagata',x.pagato,{cls:'full'})}
   </div><p class="hint">Finché l'importo è zero la scadenza resta nell'elenco ma non entra nella previsione di cassa.</p>`,
   async d=>{
-    const base={...x,titolo:d.titolo.trim(),tipo:d.tipo,importo:num(d.importo),pagato:!!d.pagato};
+    const base={...x,titolo:d.titolo.trim(),tipo:d.tipo,importo:num(d.importo)};
     const n=id?1:Math.max(1,Math.min(60,Math.round(num(d.mesi))||1));
     for(let i=0;i<n;i++){
       const dd=parse(d.data);dd.setMonth(dd.getMonth()+i);
-      await put('scad',{...base,id:i===0?x.id:undefined,data:iso(dd)});
+      const di=iso(dd);await put('scad',{...base,id:i===0?x.id:undefined,data:di,pagato:!!d.pagato&&di<=today()});
     }
   });
 }
@@ -1452,7 +1452,7 @@ async function importaF24(files,pagati){
       if(chiavi.has(chiave)){doppi++;ui.logF.push({k:'info',t:`${file.name}: già caricato`});continue}
       chiavi.add(chiave);
       const ex=f.tipo!=='altro'?S.scad.find(x=>!x.chiave&&x.tipo===f.tipo&&!x.pagato&&Math.abs((parse(x.data)-parse(f.data))/864e5)<=10):null;
-      const base={tipo:f.tipo,titolo:ex?ex.titolo:f.titolo,data:f.data,importo:f.tot,pagato:!!pagati,dataPag:pagati?f.data:'',chiave,origine:'f24'};
+      const base={tipo:f.tipo,titolo:ex?ex.titolo:f.titolo,data:f.data,importo:f.tot,pagato:!!pagati&&f.data<=today(),dataPag:pagati&&f.data<=today()?f.data:'',chiave,origine:'f24'};
       await put('scad',ex?{...ex,...base}:base);
       if(ex)agg++;else nuovi++;
       ui.logF.push({k:'good',t:`${file.name}: ${f.titolo}, ${eur(f.tot)}, ${dt(f.data)}${pagati?', pagato':', da pagare'}${ex?' (aggiornata una scadenza già in elenco)':''}`});
@@ -1463,7 +1463,7 @@ async function importaF24(files,pagati){
 function scadHtml(){
   const list=S.scad.slice().sort((a,b)=>(a.data||'').localeCompare(b.data||'')),t0=today();
   const st=x=>x.pagato?pill('Pagata','good'):!num(x.importo)?pill('Da stimare','warn'):x.data<t0?pill('Scaduta','bad'):pill('Da pagare','info');
-  return `<div class="sec"><h2>Scadenziario fiscale e rate <button class="btn pri sm" data-act="gen-scad">Genera scadenze canoniche</button><button class="btn sm" data-act="pick-f24">Carica F24 (PDF)</button><input type="file" id="f24in" multiple accept=".pdf,application/pdf" hidden><button class="btn sm" data-act="add-scad">Aggiungi scadenza</button></h2>
+  return `<div class="sec"><h2>Scadenziario fiscale e rate <button class="btn pri sm" data-act="gen-scad">Genera scadenze canoniche</button><button class="btn sm" data-act="pick-f24">Carica F24 (PDF)</button><input type="file" id="f24in" multiple accept=".pdf,application/pdf" hidden><button class="btn sm" data-act="add-scad">Aggiungi scadenza</button>${S.scad.some(x=>x.pagato&&x.data>t0)?`<button class="btn sm" data-act="scad-riapri">Riapri le future segnate pagate</button>`:''}</h2>
   <label class="row" style="gap:8px;margin:0 0 10px"><input type="checkbox" id="f24pag" checked> Gli F24 che carico sono già pagati (quietanze): registrali come spese pagate</label>
   ${ui.logF&&ui.logF.length?`<ul class="log">${ui.logF.map(l=>`<li>${pill(l.k==='bad'?'Errore':l.k==='good'?'Fatto':'Info',l.k)} ${esc(l.t)}</li>`).join('')}</ul>`:''}
   ${list.length?(()=>{
@@ -1615,6 +1615,7 @@ document.addEventListener('click',async e=>{
      toast('Cantiere creato dal preventivo: imposta il budget costi');go('cantiere',ncid,'panoramica');break}
    case 'add-scad':mScad();break;
    case 'edit-scad':mScad(id);break;
+   case 'scad-riapri':{const l=S.scad.filter(x=>x.pagato&&x.data>today());if(l.length&&confirm(l.length+' scadenze future sono segnate come pagate. Le riporto "da pagare"?')){for(const x of l)await put('scad',{...x,pagato:false,dataPag:''},true);toast(l.length+' scadenze riaperte')}break}
    case 'paid-scad':{const x=S.scad.find(y=>y.id===id);if(x)put('scad',{...x,pagato:!x.pagato});break}
    case 'gen-scad':{
      const ex=new Set(S.scad.map(x=>x.tipo+'|'+x.data+'|'+x.titolo));let n=0;
