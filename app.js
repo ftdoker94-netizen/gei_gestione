@@ -511,8 +511,12 @@ function mPrev(id,clienteId){
 }
 function mOperaio(id){
   const p=S.operai.find(y=>y.id===id)||{};
-  modal(id?'Modifica operaio':'Nuovo operaio',`<div class="fields">${F.t('nome','Nome',p.nome,{req:1,cls:'full'})}${F.t('qualifica','Qualifica / Mansione',p.qualifica||'',{cls:'full'})}${F.m('costo','Costo orario aziendale (€/h)',p.costoOrario||'',{req:1})}</div><p class="hint">I rapportini già inseriti mantengono il costo orario di quando sono stati registrati.</p>`,
-  d=>put('operai',{...p,nome:d.nome.trim(),qualifica:(d.qualifica||'').trim(),costoOrario:num(d.costo)}));
+  modal(id?'Modifica operaio':'Nuovo operaio',`<div class="fields">${F.t('nome','Nome',p.nome,{req:1,cls:'full'})}${F.t('qualifica','Qualifica / Mansione',p.qualifica||'',{cls:'full'})}${F.m('costo','Costo orario aziendale (€/h)',p.costoOrario||'',{req:1})}${id?F.c('retro','Applica il nuovo costo anche ai rapportini già inseriti',false,{cls:'full'}):''}</div><p class="hint">Di solito i rapportini già inseriti mantengono il costo orario di quando sono stati registrati. Spunta la casella per ricalcolarli tutti col nuovo costo.</p>`,
+  async d=>{
+    const costo=num(d.costo);
+    await put('operai',{...p,nome:d.nome.trim(),qualifica:(d.qualifica||'').trim(),costoOrario:costo});
+    if(id&&d.retro){const l=S.ore.filter(o=>o.operaioId===id&&num(o.costoOrario)!==costo);for(const o of l)await put('ore',{...o,costoOrario:costo},true);toast(l.length+' rapportini ricalcolati a '+eur(costo)+'/h')}
+  });
 }
 
 /* ---------- viste ---------- */
